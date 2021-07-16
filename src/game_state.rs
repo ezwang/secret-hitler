@@ -1,10 +1,16 @@
-use serde::{Serialize, ser::SerializeMap};
+use serde::{Serialize, Deserialize, ser::SerializeMap};
 use uuid::Uuid;
 use rand::{seq::SliceRandom, thread_rng};
 use std::{collections::HashMap, time::SystemTime};
 
-use crate::protocol::{self, ConnectionState, PlayerConnection, ServerProtocol};
-use protocol::PlayerType;
+use crate::protocol::{ConnectionState, PlayerConnection, ServerProtocol};
+
+#[derive(Clone, Copy, Serialize)]
+pub enum PlayerType {
+    Liberal,
+    Facist,
+    Hitler
+}
 
 #[derive(Serialize)]
 struct PlayerState {
@@ -21,8 +27,9 @@ struct PartialPlayerState {
     dead: bool
 }
 
-#[derive(Serialize)]
-enum TurnPhase {
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum TurnPhase {
     Lobby,
     Ended { winner: CardColor },
     
@@ -34,15 +41,15 @@ enum TurnPhase {
     PresidentialPower { power: PresidentialPower },
 }
 
-#[derive(Serialize)]
-enum PresidentialPower {
+#[derive(Serialize, Deserialize)]
+pub enum PresidentialPower {
     InvestigateLoyalty,
     CallSpecialElection,
     PolicyPeek,
     Execution,
 }
 
-#[derive(PartialEq, Clone, Copy, Serialize)]
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum CardColor {
     Facist,
     Liberal
@@ -87,8 +94,8 @@ fn shuffle_deck() -> Vec<CardColor> {
 
 
 pub struct GameStatePlayerView<'a> {
-    player: Uuid,
-    state: &'a GameState
+    pub player: Uuid,
+    pub state: &'a GameState
 }
 
 impl Serialize for GameStatePlayerView<'_> {

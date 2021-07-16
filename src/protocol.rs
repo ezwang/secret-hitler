@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 use warp::ws::Message;
 
-use crate::game_state::GameStatePlayerView;
+use crate::game_state::{GameStatePlayerView, PlayerType};
 
 pub type ConnectionState = HashMap<Uuid, PlayerConnection>;
 
@@ -36,13 +36,6 @@ pub enum ServerProtocol<'a> {
     Alert { message: String },
     ReceiveChat { name: String, message: String },
     GameState { state: GameStatePlayerView<'a> },
-}
-
-#[derive(Clone, Copy, Serialize)]
-pub enum PlayerType {
-    Liberal,
-    Facist,
-    Hitler
 }
 
 pub struct PlayerConnection {
