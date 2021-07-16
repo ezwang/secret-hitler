@@ -1,11 +1,13 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use serde::{Serialize, Deserialize};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 use warp::ws::Message;
 
-use crate::game_state::GameState;
+use crate::game_state::GameStatePlayerView;
+
+pub type ConnectionState = HashMap<Uuid, PlayerConnection>;
 
 #[derive(Deserialize)]
 #[serde(tag = "type")]
@@ -14,24 +16,25 @@ pub enum ClientProtocol {
     JoinGame { id: Uuid, nickname: String, player_id: Option<Uuid>, player_secret: Option<Uuid> },
     SendChat { message: String },
     StartGame,
+    ChooseChancellor { player: Uuid },
+    VoteChancellor { vote: bool },
+    PickCard { color: bool },
+    VetoCard,
+}
+
+#[derive(Serialize)]
+struct PlayerData {
+    id: Uuid,
+    role: Option<PlayerType>,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type")]
-pub enum ServerProtocol {
+pub enum ServerProtocol<'a> {
     SetIdentifiers { player_id: Uuid, game_id: Uuid, secret: Uuid },
     Alert { message: String },
-    SetRole { role: PlayerType },
-    PlayerList { players: Vec<PlayerItem> },
-    SetGameState { state: GameStatus },
     ReceiveChat { name: String, message: String },
-}
-
-#[derive(Serialize)]
-pub enum GameStatus {
-    Lobby,
-    InGame,
-    Ended
+    GameState { state: GameStatePlayerView<'a> },
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -41,20 +44,16 @@ pub enum PlayerType {
     Hitler
 }
 
-#[derive(Serialize)]
-pub struct PlayerItem {
-    pub id: Uuid,
-    pub name: String
-}
-
 pub struct PlayerConnection {
+    pub name: Option<String>,
+    pub secret: Option<Uuid>,
     pub tx: Arc<mpsc::UnboundedSender<Result<Message, warp::Error>>>,
     pub connected: bool
 }
 
 impl PlayerConnection {
     pub fn new(ptx: Arc<mpsc::UnboundedSender<Result<Message, warp::Error>>>) -> PlayerConnection {
-        PlayerConnection { tx: ptx, connected: true }
+        PlayerConnection { tx: ptx, connected: true, name: None, secret: None }
     }
 
     pub fn send(&self, message: &ServerProtocol) {
@@ -64,14 +63,12 @@ impl PlayerConnection {
     }
 }
 
-impl GameState {
-    pub fn send_to_all(&self, message: &ServerProtocol) {
-        let serialized_msg = serde_json::to_string(message).unwrap();
+pub fn send_to_all(conn: &ConnectionState, message: &ServerProtocol) {
+    let serialized_msg = serde_json::to_string(message).unwrap();
 
-        self.players.values().for_each(|state| {
-            if let Err(e) = state.conn.tx.send(Ok(Message::text(serialized_msg.clone()))) {
-                eprintln!("error sending all message: {}", e);
-            }
-        });
-    }
+    conn.values().for_each(|conn| {
+        if let Err(e) = conn.tx.send(Ok(Message::text(serialized_msg.clone()))) {
+            eprintln!("error sending all message: {}", e);
+        }
+    });
 }
