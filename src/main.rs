@@ -194,6 +194,11 @@ async fn ws_connect(ws: WebSocket, state: GlobalState) {
                             gs.veto(*pid)
                         });
                     },
+                    ClientProtocol::PresidentialPower { player } => {
+                        game_state_wrapper(&state, &current_game, &current_player, &|gs: &mut GameState, pid| {
+                            gs.execute_presidential_power(*pid, player)
+                        });
+                    },
                 }
             }
         }

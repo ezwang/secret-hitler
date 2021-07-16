@@ -20,6 +20,7 @@ pub enum ClientProtocol {
     VoteChancellor { vote: bool },
     PickCard { color: bool },
     VetoCard,
+    PresidentialPower { player: Option<Uuid> },
 }
 
 #[derive(Serialize)]

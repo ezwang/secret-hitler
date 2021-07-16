@@ -10,13 +10,15 @@ use protocol::PlayerType;
 struct PlayerState {
     role: PlayerType,
     vote: Option<bool>,
+    dead: bool
 }
 
 #[derive(Serialize)]
 struct PartialPlayerState {
     name: String,
     role: Option<PlayerType>,
-    vote: Option<bool>
+    vote: Option<bool>,
+    dead: bool
 }
 
 #[derive(Serialize)]
@@ -29,11 +31,15 @@ enum TurnPhase {
     PresidentSelect,
     ChancellorSelect,
 
+    PresidentialPower { power: PresidentialPower },
+}
+
+#[derive(Serialize)]
+enum PresidentialPower {
     InvestigateLoyalty,
     CallSpecialElection,
     PolicyPeek,
     Execution,
-    VetoPower,
 }
 
 #[derive(PartialEq, Clone, Copy, Serialize)]
@@ -46,7 +52,6 @@ pub struct GameState {
     pub conn: ConnectionState,
     pub timeout: Option<SystemTime>,
 
-    creation: SystemTime,
     players: HashMap<Uuid, PlayerState>,
     liberal_policies: u8,
     facist_policies: u8,
@@ -64,19 +69,8 @@ pub struct GameState {
     host: Option<Uuid>,
 
     president_veto: bool,
-    chancellor_veto: bool
-}
-
-pub enum GameEvent {
-    SetRole { player: Uuid, role: PlayerType },
-    SetHost { player: Uuid },
-    AddPlayer { player: Uuid },
-    RemovePlayer { player: Uuid },
-    StartGame,
-    PresidentPick { player: Uuid },
-    VoteChancellor { player: Uuid },
-    SetVoted { player: Uuid },
-    SetEnded { winner: CardColor },
+    chancellor_veto: bool,
+    investigated: HashMap<Uuid, Vec<Uuid>>,
 }
 
 fn shuffle_deck() -> Vec<CardColor> {
@@ -102,6 +96,8 @@ impl Serialize for GameStatePlayerView<'_> {
     where
         S: serde::Serializer {
             let role = self.state.players.get(&self.player).unwrap().role;
+            let investigated = vec![];
+            let investigated = self.state.investigated.get(&self.player).unwrap_or(&investigated);
             let mut map = serializer.serialize_map(None)?;
             map.serialize_entry("liberal_policies", &self.state.liberal_policies)?;
             map.serialize_entry("facist_policies", &self.state.facist_policies)?;
@@ -118,11 +114,12 @@ impl Serialize for GameStatePlayerView<'_> {
             map.serialize_entry("players", &self.state.players.iter().map(|(k, v)| {
                 (k, PartialPlayerState {
                     name: self.state.conn.get(&k).unwrap().name.clone().unwrap_or_default(),
-                    role: if self.player == *k || matches!(role, PlayerType::Facist) || (matches!(role, PlayerType::Hitler) && self.state.players.len() <= 6) { Some(v.role) } else { None },
-                    vote: if matches!(self.state.turn_phase, TurnPhase::Voting) { None } else { v.vote }
+                    role: if self.player == *k || matches!(role, PlayerType::Facist) || (matches!(role, PlayerType::Hitler) && self.state.players.len() <= 6) || investigated.contains(k) { Some(v.role) } else { None },
+                    vote: if matches!(self.state.turn_phase, TurnPhase::Voting) { None } else { v.vote },
+                    dead: v.dead
                 })
             }).collect::<HashMap<&Uuid, PartialPlayerState>>())?;
-            if matches!(self.state.turn_phase, TurnPhase::PresidentSelect) && Some(self.player) == self.state.president {
+            if matches!(self.state.turn_phase, TurnPhase::PresidentSelect | TurnPhase::PresidentialPower { power: PresidentialPower::PolicyPeek }) && Some(self.player) == self.state.president {
                 map.serialize_entry("cards", &self.state.cards[self.state.cards.len()-3..self.state.cards.len()])?;
             }
             if matches!(self.state.turn_phase, TurnPhase::ChancellorSelect) && Some(self.player) == self.state.chancellor {
@@ -137,10 +134,6 @@ impl Serialize for GameStatePlayerView<'_> {
 
 
 impl GameState {
-    fn send_event(&self, _: GameEvent) -> () {
-        // TODO: possibly remove altogether
-    }
-
     pub fn broadcast_game_state(&self) {
         self.players.keys().for_each(|k| {
             self.send_game_state(*k);
@@ -161,8 +154,7 @@ impl GameState {
         GameState {
             conn: ConnectionState::default(),
 
-            creation: SystemTime::now(),
-            timeout: Option::None,
+            timeout: None,
             players: HashMap::new(),
             liberal_policies: 0,
             facist_policies: 0,
@@ -180,21 +172,22 @@ impl GameState {
             turn_phase: TurnPhase::Lobby,
 
             president_veto: false,
-            chancellor_veto: false
+            chancellor_veto: false,
+            investigated: HashMap::new(),
         }
     }
 
+    /// Add a player during the lobby phase.
+    /// Returns true if the player was successfully added.
     pub fn add_player(&mut self, player_id: Uuid, player_connection: PlayerConnection) -> bool {
         if !matches!(self.turn_phase, TurnPhase::Lobby) {
             return false
         }
         self.conn.insert(player_id, player_connection);
-        self.players.insert(player_id, PlayerState { role: PlayerType::Liberal, vote: None });
+        self.players.insert(player_id, PlayerState { role: PlayerType::Liberal, vote: None, dead: false });
         if self.host == None {
             self.host = Some(player_id);
-            self.send_event(GameEvent::SetHost { player: player_id });
         }
-        self.send_event(GameEvent::AddPlayer { player: player_id });
         true
     }
 
@@ -212,6 +205,8 @@ impl GameState {
         self.conn.iter().any(|(_, c)| c.connected)
     }
 
+    /// Remove a player during the lobby phase and return true.
+    /// If the game has started, mark the connection as disconnected instead and return false.
     pub fn remove_player(&mut self, player: Uuid) -> bool {
         if matches!(self.turn_phase, TurnPhase::Lobby) {
             self.players.remove(&player);
@@ -220,11 +215,7 @@ impl GameState {
                     Some(uuid) => Some(*uuid),
                     None => None
                 };
-                if let Some(host) = self.host {
-                    self.send_event(GameEvent::SetHost { player: host });
-                }
             }
-            self.send_event(GameEvent::RemovePlayer { player });
             return true
         }
         else if let Some(conn) = self.conn.get_mut(&player) {
@@ -280,18 +271,12 @@ impl GameState {
         self.president = Some(turn_order[0]);
         self.turn_order = turn_order;
 
-        // pass information to players
-        for (player, value) in self.players.iter() {
-            self.send_event(GameEvent::SetRole { player: *player, role: value.role });
-        }
         self.turn_phase = TurnPhase::Electing;
-        self.send_event(GameEvent::StartGame);
-        self.send_event(GameEvent::PresidentPick { player: self.president.unwrap() });
         Ok(())
     }
 
     pub fn choose_chancellor(&mut self, player: Uuid, target_player: Uuid) -> Result<(), &'static str> {
-        if !matches!(self.turn_phase, TurnPhase::ChancellorSelect) {
+        if !matches!(self.turn_phase, TurnPhase::Electing) {
             return Err("You cannot perform this action at this time!");
         }
 
@@ -307,20 +292,27 @@ impl GameState {
             return Err("You cannot choose the last elected president or chancellor.");
         }
 
-        self.turn_phase = TurnPhase::Electing;
+        match self.players.get(&target_player) {
+            Some(plr) => {
+                if plr.dead {
+                    return Err("That player is dead!")
+                }
+            },
+            None => return Err("That player does not exist!")
+        }
+
+        self.turn_phase = TurnPhase::Voting;
         self.chancellor = Some(target_player);
-        self.send_event(GameEvent::VoteChancellor { player: target_player });
         self.players.values_mut().for_each(|val| val.vote = None);
         Ok(())
     }
 
     pub fn vote_chancellor(&mut self, player: Uuid, vote: bool) -> Result<(), &'static str> {
-        if !matches!(self.turn_phase, TurnPhase::Electing) {
+        if !matches!(self.turn_phase, TurnPhase::Voting) {
             return Err("You cannot perform this action at this time!")
         }
 
         self.players.get_mut(&player).unwrap().vote = Some(vote);
-        self.send_event(GameEvent::SetVoted { player });
 
         if self.players.values().all(|plr| plr.vote.is_some()) {
             let mut num_for = 0;
@@ -335,7 +327,6 @@ impl GameState {
                 // hitler wins if elected chancellor with 3+ policies
                 if matches!(self.players.get(&self.chancellor.unwrap()).unwrap().role, PlayerType::Hitler) && self.facist_policies >= 3 {
                     self.turn_phase = TurnPhase::Ended { winner: CardColor::Facist };
-                    self.send_event(GameEvent::SetEnded { winner: CardColor::Facist });
                     return Ok(())
                 }
                 else {
@@ -364,7 +355,7 @@ impl GameState {
     /// Enact the chosen policy, reshuffle the deck if necessary, and handle moving on to the next president's turn.
     /// Does not handle discarding the selected policy cards from the deck.
     fn enact_policy(&mut self, card: CardColor) -> () {
-        let mut ended = false;
+        let mut pick_president = false;
 
         if self.cards.len() < 3 {
             self.cards = shuffle_deck();
@@ -374,33 +365,56 @@ impl GameState {
                 self.facist_policies += 1;
                 if self.facist_policies >= 6 {
                     self.turn_phase = TurnPhase::Ended { winner: CardColor::Facist };
-                    self.send_event(GameEvent::SetEnded { winner: CardColor::Facist });
-                    ended = true;
+                }
+                else {
+                    match (self.players.len(), self.facist_policies) {
+                        (5..=6, 3) => {
+                            // examine top three
+                            self.turn_phase = TurnPhase::PresidentialPower { power: PresidentialPower::PolicyPeek };
+                        },
+                        (9..=10, 1..=2) | (7..=8, 2) => {
+                            // investigate identity
+                            self.turn_phase = TurnPhase::PresidentialPower { power: PresidentialPower::InvestigateLoyalty };
+                        },
+                        (7..=10, 3) => {
+                            // president picks next candidate
+                            self.turn_phase = TurnPhase::PresidentialPower { power: PresidentialPower::CallSpecialElection };
+                        }
+                        (_, 4..=5) => {
+                            // kill a player
+                            self.turn_phase = TurnPhase::PresidentialPower { power: PresidentialPower::Execution };
+                        },
+                        _ => {
+                            pick_president = true;
+                        }
+                    }
                 }
             }
             CardColor::Liberal => {
                 self.liberal_policies += 1;
                 if self.liberal_policies >= 6 {
                     self.turn_phase = TurnPhase::Ended { winner: CardColor::Liberal };
-                    self.send_event(GameEvent::SetEnded { winner: CardColor::Liberal });
-                    ended = true;
+                }
+                else {
+                    pick_president = true;
                 }
             }
         }
 
-        if !ended {
+        if pick_president {
             self.next_president();
         }
     }
 
+    /// Move onto the next president, keeping track of the last president and chancellor.
     fn next_president(&mut self) -> () {
         self.last_president = self.president;
         self.last_chancellor = self.chancellor;
 
         self.chancellor = None;
         self.turn_counter += 1;
+        self.turn_phase = TurnPhase::Electing;
         self.president = Some(self.turn_order[self.turn_counter % self.turn_order.len()]);
-        self.send_event(GameEvent::PresidentPick { player: self.president.unwrap() });
     }
 
     pub fn veto(&mut self, player: Uuid) -> Result<(), &'static str> {
@@ -483,5 +497,98 @@ impl GameState {
                 Err("You cannot perform this action at this time!")
             }
         }
+    }
+
+    pub fn execute_presidential_power(&mut self, player: Uuid, target: Option<Uuid>) -> Result<(), &'static str> {
+        if Some(player) != self.president {
+            return Err("Only the current president may execute presidential powers.")
+        }
+
+        if let TurnPhase::PresidentialPower { power } = &self.turn_phase {
+            match power {
+                PresidentialPower::InvestigateLoyalty => {
+                    if let Some(target) = target {
+                        match self.players.get(&target) {
+                            Some(_) => {
+                                if target == player {
+                                    return Err("You cannot investigate yourself!")
+                                }
+
+                                let mut lst = vec![];
+                                if let Some(old) = self.investigated.get(&player) {
+                                    lst.extend(old);
+                                }
+                                lst.push(target);
+                                self.investigated.insert(player, lst);
+
+                                self.next_president();
+                            },
+                            None => return Err("That player does not exist!")
+                        }
+                    }
+                    else {
+                        return Err("You must select a player!");
+                    }
+                },
+                PresidentialPower::CallSpecialElection => {
+                    // president can choose any other player
+                    if target == Some(player) {
+                        return Err("You cannot choose yourself!")
+                    }
+                    if let Some(target) = target {
+                        match self.players.get(&target) {
+                            Some(plr) => {
+                                if plr.dead {
+                                    return Err("That player is dead!")
+                                }
+                            },
+                            None => return Err("That player does not exist!")
+                        }
+                        self.last_president = self.president;
+                        self.last_chancellor = self.chancellor;
+                        self.chancellor = None;
+                        self.president = Some(target);
+                        self.turn_phase = TurnPhase::Electing;
+                    }
+                    else {
+                        return Err("You must select a player!");
+                    }
+                },
+                PresidentialPower::Execution => {
+                    if target == Some(player) {
+                        return Err("You cannot execute yourself!")
+                    }
+
+                    if let Some(target) = target {
+                        match self.players.get_mut(&target) {
+                            Some(plr) => {
+                                if plr.dead {
+                                    return Err("That player is already dead!")
+                                }
+                                else {
+                                    plr.dead = true;
+                                    if let Some(idx) = self.turn_order.iter().position(|p| *p == target) {
+                                        self.turn_order.remove(idx);
+                                    }
+                                    self.next_president();
+                                }
+                            },
+                            None => return Err("That player does not exist!")
+                        }
+                    }
+                    else {
+                        return Err("You must select a player!")
+                    }
+                },
+                PresidentialPower::PolicyPeek => {
+                    self.next_president();
+                },
+            }
+        }
+        else {
+            return Err("You cannot execute a presidential power at this time.")
+        }
+
+        Ok(())
     }
 }
