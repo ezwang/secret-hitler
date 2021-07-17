@@ -121,11 +121,14 @@ impl Serialize for GameStatePlayerView<'_> {
             map.serialize_entry("players", &self.state.players.iter().map(|(k, v)| {
                 (k, PartialPlayerState {
                     name: self.state.conn.get(&k).unwrap().name.clone().unwrap_or_default(),
-                    role: if self.player == *k || matches!(role, PlayerType::Facist) || (matches!(role, PlayerType::Hitler) && self.state.players.len() <= 6) || investigated.contains(k) { Some(v.role) } else { None },
+                    role: if matches!(self.state.turn_phase, TurnPhase::Ended { winner: _ }) || self.player == *k || matches!(role, PlayerType::Facist) || (matches!(role, PlayerType::Hitler) && self.state.players.len() <= 6) || investigated.contains(k) { Some(v.role) } else { None },
                     vote: if matches!(self.state.turn_phase, TurnPhase::Voting) { None } else { v.vote },
                     dead: v.dead
                 })
             }).collect::<HashMap<&Uuid, PartialPlayerState>>())?;
+            if matches!(self.state.turn_phase, TurnPhase::Voting) {
+                map.serialize_entry("votes", &self.state.players.values().filter(|s| matches!(s.vote, Some(_))).count())?;
+            }
             if matches!(self.state.turn_phase, TurnPhase::PresidentSelect | TurnPhase::PresidentialPower { power: PresidentialPower::PolicyPeek }) && Some(self.player) == self.state.president {
                 map.serialize_entry("cards", &self.state.cards[self.state.cards.len()-3..self.state.cards.len()])?;
             }
@@ -184,14 +187,18 @@ impl GameState {
         }
     }
 
-    /// Add a player during the lobby phase.
+    /// Add a player during the lobby phase or reconnect an existing player to a game.
     /// Returns true if the player was successfully added.
     pub fn add_player(&mut self, player_id: Uuid, player_connection: PlayerConnection) -> bool {
         if !matches!(self.turn_phase, TurnPhase::Lobby) {
-            return false
+            if !self.conn.contains_key(&player_id) {
+                return false
+            }
         }
         self.conn.insert(player_id, player_connection);
-        self.players.insert(player_id, PlayerState { role: PlayerType::Liberal, vote: None, dead: false });
+        if !self.players.contains_key(&player_id) {
+            self.players.insert(player_id, PlayerState { role: PlayerType::Liberal, vote: None, dead: false });
+        }
         if self.host == None {
             self.host = Some(player_id);
         }
@@ -319,9 +326,17 @@ impl GameState {
             return Err("You cannot perform this action at this time!")
         }
 
-        self.players.get_mut(&player).unwrap().vote = Some(vote);
+        if let Some(data) = self.players.get_mut(&player) {
+            if data.dead {
+                return Err("You are dead and therefore cannot vote!");
+            }
+            data.vote = Some(vote);
+        }
+        else {
+            return Err("This player does not exist!");
+        }
 
-        if self.players.values().all(|plr| plr.vote.is_some()) {
+        if self.players.values().all(|plr| plr.dead || plr.vote.is_some()) {
             let mut num_for = 0;
             let mut num_against = 0;
             self.players.values().for_each(|val| {
@@ -399,7 +414,7 @@ impl GameState {
             }
             CardColor::Liberal => {
                 self.liberal_policies += 1;
-                if self.liberal_policies >= 6 {
+                if self.liberal_policies >= 5 {
                     self.turn_phase = TurnPhase::Ended { winner: CardColor::Liberal };
                 }
                 else {

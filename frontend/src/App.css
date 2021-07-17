@@ -1,5 +1,13 @@
 html, body {
   box-sizing: border-box;
+  background-color: #ffe4c3;
+  font-family: 'Courier Prime', 'Courier New', Courier, monospace;
+}
+
+.welcome {
+  max-width: 600px;
+  margin: 0 auto;
+  margin-top: 10vh;
 }
 
 .alert {
@@ -18,6 +26,8 @@ input[type="text"] {
   flex: 1;
 }
 
+/* Chat */
+
 .chat {
   width: 300px;
 }
@@ -26,4 +36,28 @@ input[type="text"] {
 }
 .chat input[type="text"] {
   width: 100%;
+}
+
+/* Game */
+
+.policySlot {
+  display: inline-block;
+  padding: 15px;
+  border: 1px solid grey;
+}
+
+.policySlot img {
+  width: 100px;
+}
+
+.policyTable {
+  text-align: center;
+}
+
+.policySlot.facist.active {
+  filter: sepia(90%) hue-rotate(320deg);
+}
+
+.policySlot.liberal.active {
+  filter: sepia(90%) hue-rotate(180deg);
 }

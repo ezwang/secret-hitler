@@ -123,6 +123,9 @@ async fn ws_connect(ws: WebSocket, state: GlobalState) {
                                         if state.add_player(old_player_id, conn) {
                                             state.broadcast_game_state();
                                         }
+                                        else {
+                                            PlayerConnection::new(ptx.clone()).send(&ServerProtocol::Alert { message: "This game has already started!".into() });
+                                        }
                                     }
                                     else {
                                         conn.send(&ServerProtocol::Alert { message: "Invalid player secret passed to server!".into() });
