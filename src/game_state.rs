@@ -234,9 +234,14 @@ impl GameState {
         self.conn.iter().any(|(_, c)| c.connected)
     }
 
-    fn add_chat(&mut self, line: ChatLine) -> () {
+    /// Send a chat message to all participants in this game.
+    /// Only keep the last 250 messages.
+    pub fn add_chat(&mut self, line: ChatLine) -> () {
         send_to_all(&self.conn, &ServerProtocol::ReceiveChat { id: line.id, message: line.message.clone() });
         self.chat_log.push_back(line);
+        while self.chat_log.len() > 250 {
+            self.chat_log.pop_front();
+        }
     }
 
     /// Disconnect a player during the lobby phase and return true.
@@ -251,8 +256,9 @@ impl GameState {
                 };
             }
             let player_connection = self.conn.get(&player);
-            if let Some(plr) = player_connection {
-                self.add_chat(ChatLine { id: None, message: format!("{} has disconnected", plr.name.clone().unwrap_or_default()) });
+            let name = player_connection.and_then(|plr| plr.name.clone());
+            if let Some(name) = name {
+                self.add_chat(ChatLine { id: None, message: format!("{} has disconnected", name) });
             }
             return true
         }

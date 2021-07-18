@@ -276,6 +276,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
   
   const [gameId, setGameId] = useState<Uuid | null>(initialGameId ?? localStorage.getItem("gameId"));
   const [connected, setConnected] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(gameId != null);
   
   const ws = useRef<WebSocket | null>(null);
 
@@ -306,7 +307,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
   }, [gameState]);
   
   const connect = () => {
-    ws.current = new WebSocket(`${window.location.protocol.replace('http', 'ws')}//${window.location.host}/ws/`);
+    ws.current = new WebSocket(`${window.location.protocol.replace('http', 'ws')}//${window.location.hostname === "localhost" ? "localhost:8000" : window.location.host}/ws/`);
     ws.current.onopen = () => {
       setConnected(true);
       const finalPlayerId = playerId ?? localStorage.getItem(`playerId${suffix}`);
@@ -325,6 +326,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
       const packet = JSON.parse(msg.data);
       switch (packet.type) {
         case "Alert":
+          setLoading(false);
           setAlert(packet.message);
           break;
         case "SetIdentifiers":
@@ -337,6 +339,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
           break;
         case "ChatLog":
           setChatLines(packet.log);
+          setLoading(false);
           break;
         case "GameState":
           setGameState(packet.state);
@@ -347,15 +350,29 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
 
   useEffect(connect, []);
 
+  if (loading) {
+    return <div className="content">
+      <div className="welcome">
+        <h1>Secret Hitler</h1>
+        <p>Reconnecting to previous game...</p>
+      </div>
+    </div>;
+  }
+
   if (gameState.turn_phase.type === TurnPhase.INTRO || playerId == null) {
     return <div className="content">
       <div className="welcome">
         <h1>Secret Hitler</h1>
         <p>A social deduction game for 5-10 people</p>
         <IntroPrompt suffix={suffix} nickname={nickname} alert={alert} onSubmit={(nick, game) => {
-          setAlert(null);
           localStorage.setItem(`nickname${suffix}`, nick);
-          ws.current?.send(JSON.stringify({ "type": game != null ? "JoinGame" : "HostGame", "nickname": nick, "id": game }));
+          if (connected) {
+            ws.current?.send(JSON.stringify({ "type": game != null ? "JoinGame" : "HostGame", "nickname": nick, "id": game }));
+            setAlert(null);
+          }
+          else {
+            setAlert("The websocket connection has not been established yet.");
+          }
         }} />
       </div>
     </div>;

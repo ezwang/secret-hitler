@@ -170,7 +170,7 @@ async fn ws_connect(ws: WebSocket, state: GlobalState) {
                             if let Some(state) = state.read().unwrap().get(&game) {
                                 if let Some(player) = current_player {
                                     let state = &mut state.write().unwrap();
-                                    state.chat_log.push_back(ChatLine { id: Some(player), message: message.clone() });
+                                    state.add_chat(ChatLine { id: Some(player), message: message.clone() });
                                     send_to_all(&state.conn, &ServerProtocol::ReceiveChat { id: Some(player), message });
                                 }
                             }
