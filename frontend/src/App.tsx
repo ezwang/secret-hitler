@@ -87,7 +87,7 @@ const IntroPrompt = ({ nickname: initialNickname, suffix, alert, onSubmit, gameI
       <button className="btn" onClick={joinGame}>Join Game</button>
     </div>
     <p>Based on <a href="https://www.secrethitler.com/" target="_blank" rel="noopener noreferrer">the board game</a> - CC SA–BY–NC 4.0</p>
-    <p>Created by <a href="https://github.com/ezwang" target="_blank" rel="noopener noreferrer">ezwang</a></p>
+    <p>Find the source code <a href="https://github.com/ezwang/secret-hitler" target="_blank" rel="noopener noreferrer">here</a></p>
   </div>;
 };
 
