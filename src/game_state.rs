@@ -71,7 +71,7 @@ pub struct GameState {
     facist_policies: u8,
     election_tracker: u8,
     cards: Vec<CardColor>,
-    discarded_card: Option<CardColor>,
+    discarded: Vec<CardColor>,
 
     turn_phase: TurnPhase,
     turn_counter: usize,
@@ -125,10 +125,12 @@ impl Serialize for GameStatePlayerView<'_> {
             map.serialize_entry("last_chancellor", &self.state.last_chancellor)?;
             map.serialize_entry("turn_phase", &self.state.turn_phase)?;
             map.serialize_entry("turn_order", &self.state.turn_order)?;
+            map.serialize_entry("cards_in_deck", &self.state.cards.len())?;
+            map.serialize_entry("cards_in_discard", &self.state.discarded.len())?;
             map.serialize_entry("players", &self.state.players.iter().map(|(k, v)| {
                 (k, PartialPlayerState {
                     name: self.state.conn.get(&k).unwrap().name.clone().unwrap_or_default(),
-                    role: if matches!(self.state.turn_phase, TurnPhase::Ended { winner: _ }) || self.player == *k || matches!(role, PlayerType::Facist) || (matches!(role, PlayerType::Hitler) && self.state.players.len() <= 6) || investigated.contains(k) { Some(v.role) } else { None },
+                    role: if matches!(self.state.turn_phase, TurnPhase::Ended { winner: _ }) || self.player == *k || matches!(role, PlayerType::Facist) || (matches!(role, PlayerType::Hitler) && self.state.players.len() <= 6) { Some(v.role) } else if investigated.contains(k) { Some(match v.role { PlayerType::Liberal => PlayerType::Liberal, _ => PlayerType::Facist }) } else { None },
                     vote: if matches!(self.state.turn_phase, TurnPhase::Voting) && self.player != *k { None } else { v.vote },
                     dead: v.dead
                 })
@@ -141,7 +143,7 @@ impl Serialize for GameStatePlayerView<'_> {
             }
             if matches!(self.state.turn_phase, TurnPhase::ChancellorSelect) && Some(self.player) == self.state.chancellor {
                 let mut cards: Vec<CardColor> = self.state.cards[self.state.cards.len()-3..self.state.cards.len()].into();
-                let idx = cards.iter().position(|x| Some(*x) == self.state.discarded_card).unwrap();
+                let idx = cards.iter().rposition(|x| Some(*x) == self.state.discarded.last().and_then(|card| Some(*card))).unwrap();
                 cards.remove(idx);
                 map.serialize_entry("cards", &cards)?;
             }
@@ -185,7 +187,7 @@ impl GameState {
 
             turn_order: vec![],
             cards: shuffle_deck(),
-            discarded_card: None,
+            discarded: vec![],
             turn_counter: 0,
             turn_phase: TurnPhase::Lobby,
 
@@ -418,7 +420,7 @@ impl GameState {
                 // do veto continue
                 self.chancellor = None;
                 self.election_tracker += 1;
-                if self.election_tracker > 3 {
+                if self.election_tracker >= 3 {
                     self.election_tracker = 0;
                     let card = self.cards.pop().unwrap();
                     self.enact_policy(card);
@@ -437,7 +439,7 @@ impl GameState {
         let mut pick_president = false;
 
         if self.cards.len() < 3 {
-            self.cards = shuffle_deck();
+            self.reshuffle_deck();
         }
         match card {
             CardColor::Facist => {
@@ -517,13 +519,19 @@ impl GameState {
 
         if self.president_veto && self.chancellor_veto {
             self.election_tracker += 1;
-            if self.election_tracker > 3 {
+            if self.election_tracker >= 3 {
                 self.election_tracker = 0;
+                // remove the card that the president discarded
+                // put all 3 drawn cards in the discard pile
+                self.discarded.pop();
                 for _ in 0..3 {
-                    self.cards.pop();
+                    if let Some(card) = self.cards.pop() {
+                        self.discarded.push(card);
+                    }
                 }
+                // draw the next card and enact it
                 let card = self.cards.pop().unwrap_or_else(|| {
-                    self.cards = shuffle_deck();
+                    self.reshuffle_deck();
                     self.cards.pop().unwrap()
                 });
                 self.enact_policy(card);
@@ -536,6 +544,12 @@ impl GameState {
         Ok(())
     }
 
+    /// Move the discard pile into the draw pile and shuffle the draw pile.
+    fn reshuffle_deck(&mut self) -> () {
+        self.cards.append(&mut self.discarded);
+        self.cards.shuffle(&mut thread_rng());
+    }
+
     pub fn pick_card(&mut self, player: Uuid, color: CardColor) -> Result<(), &'static str> {
         match self.turn_phase {
             TurnPhase::PresidentSelect => {
@@ -543,7 +557,7 @@ impl GameState {
                     return Err("Only the president may select policies at this time.");
                 }
                 if self.cards[self.cards.len()-3..self.cards.len()].iter().any(|c| matches!(c, _color)) {
-                    self.discarded_card = Some(color);
+                    self.discarded.push(color);
                     self.president_veto = false;
                     self.chancellor_veto = false;
                     self.turn_phase = TurnPhase::ChancellorSelect;
@@ -557,14 +571,16 @@ impl GameState {
                 if Some(player) != self.chancellor {
                     return Err("Only the president may select policies at this time.");
                 }
-                let mut matching = self.cards[self.cards.len()-3..self.cards.len()].iter().filter(|c| **c == color).count();
-                if self.discarded_card == Some(color) {
-                    matching -= 1;
+                let mut choices: Vec<CardColor> = self.cards[self.cards.len()-3..self.cards.len()].to_vec();
+                if let Some(card) = self.discarded.last() {
+                    choices.remove(choices.iter().position(|c| c == card).unwrap());
                 }
-                if matching > 0 {
+                if choices.contains(&color) {
+                    choices.remove(choices.iter().position(|c| *c == color).unwrap());
                     for _ in 0..3 {
                         self.cards.pop();
                     }
+                    self.discarded.push(choices.pop().unwrap());
                     self.enact_policy(color);
                     Ok(())
                 }
@@ -649,7 +665,12 @@ impl GameState {
                                     if let Some(idx) = self.turn_order.iter().position(|p| *p == target) {
                                         self.turn_order.remove(idx);
                                     }
-                                    self.next_president();
+                                    if matches!(plr.role, PlayerType::Hitler) {
+                                        self.turn_phase = TurnPhase::Ended { winner: CardColor::Liberal };
+                                    }
+                                    else {
+                                        self.next_president();
+                                    }
                                 }
                             },
                             None => return Err("That player does not exist!")

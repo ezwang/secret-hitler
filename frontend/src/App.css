@@ -4,6 +4,12 @@ html, body {
   font-family: 'Courier Prime', 'Courier New', Courier, monospace;
 }
 
+.clearfix::after {
+  content: "";
+  clear: both;
+  display: table;
+}
+
 .welcome {
   width: 400px;
   margin: 0 auto;
@@ -46,6 +52,13 @@ html, body {
   transition: box-shadow 0.1s;
 }
 
+.btn.small {
+  font-size: 0.9em;
+  border-radius: 5px;
+  padding: 5px 8px;
+  margin-bottom: 5px;
+}
+
 .btn:hover:not(:disabled) {
   cursor: pointer;
   box-shadow: inset 0 0 0 0.1em #ffe4c3;
@@ -82,12 +95,58 @@ html, body {
   }
 }
 
+.mb-1 {
+  margin-bottom: 1em;
+}
+
 .mb-3 {
   margin-bottom: 3em;
 }
 
-.playerList .self {
+ul.playerList .self {
   font-weight: bold;
+}
+
+.playerList .player {
+  display: inline-block;
+  width: 300px;
+  padding: 15px;
+  margin: 5px;
+  background-color: rgba(0, 0, 0, 0.05);
+  vertical-align: top;
+}
+
+div.playerList .name {
+  font-size: 1.2em;
+}
+
+div.playerList .role {
+  font-style: italic;
+  display: block;
+}
+
+div.playerList .order {
+  float: right;
+  color: #666;
+}
+
+div.playerList .affiliation {
+  float: left;
+  margin-right: 10px;
+}
+
+div.playerList .affiliation .none {
+  background-color: #ccc;
+  border-radius: 64px;
+  width: 64px;
+  height: 64px;
+  text-align: center;
+  line-height: 64px;
+  font-size: 3em;
+}
+
+div.playerList .affiliation img {
+  width: 64px;
 }
 
 /* Chat */
@@ -114,7 +173,36 @@ html, body {
   box-sizing: border-box;
 }
 
+.dialog {
+  position: fixed;
+  z-index: 1;
+  bottom: 30px;
+  left: 15px;
+  padding: 15px;
+  max-width: 300px;
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.dialog h1 {
+  font-size: 1.5em;
+  margin: 0;
+}
+
 /* Game */
+
+.policyTable {
+  display: flex;
+  justify-content: center;
+}
+
+.policyTable .policySlot {
+  width: 100px;
+  vertical-align: top;
+}
+
+.policyTable .policySlot p {
+  font-size: 0.8em;
+}
 
 .policySlot {
   display: inline-block;
@@ -126,7 +214,7 @@ html, body {
   width: 100px;
 }
 
-.policyTable {
+.policyTable, .policyPeek {
   text-align: center;
 }
 
@@ -146,19 +234,54 @@ html, body {
   color: red;
 }
 
-.disconnected {
+.footer {
   position: fixed;
   bottom: 5px;
   left: 5px;
+  z-index: 5;
+}
+
+.footer a {
+  color: black;
+}
+
+.footer a:hover {
+  color: #666;
+}
+
+.disconnected {
   color: red;
 }
 
-.voteBox, .cardSelectBox {
+.electionTracker .electionDot {
+  background-color: #ccc;
+  width: 32px;
+  height: 32px;
+  border-radius: 32px;
+  display: inline-block;
+  margin: 5px;
+}
+
+.electionTracker .electionDot.active {
+  background-color: #40E0D0;
+}
+
+.electionTracker {
+  text-align: center;
+  margin: 15px 0;
+}
+
+.voteBox, .cardSelectBox, .gameOverBox, .infoBox {
   text-align: center;
   margin: 30px 15px;
 }
 
-.cardSelectBox button {
+.vetoPowerBox {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.cardSelectBox button.policySlot {
   background-color: transparent;
   border: none;
   cursor: pointer;

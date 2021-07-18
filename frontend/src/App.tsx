@@ -49,9 +49,9 @@ const ChatBox = ({ gameState, lines, onSubmit, playerId }: { playerId: Uuid, gam
   </div>
 }
 
-const IntroPrompt = ({ nickname: initialNickname, suffix, alert, onSubmit }: { nickname?: string, suffix: string, alert: string | null, onSubmit: (name: string, game: string | null) => void }): ReactElement => {
+const IntroPrompt = ({ nickname: initialNickname, suffix, alert, onSubmit, gameId }: { nickname?: string, suffix: string, gameId?: Uuid | null, alert: string | null, onSubmit: (name: string, game: string | null) => void }): ReactElement => {
   const [nickname, setNickname] = useState<string>(initialNickname ?? localStorage.getItem(`nickname${suffix}`) ?? "");
-  const [gameCode, setGameCode] = useState<string>("");
+  const [gameCode, setGameCode] = useState<string>(gameId ?? "");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -87,11 +87,12 @@ const IntroPrompt = ({ nickname: initialNickname, suffix, alert, onSubmit }: { n
       <button className="btn" onClick={joinGame}>Join Game</button>
     </div>
     <p>Based on <a href="https://www.secrethitler.com/" target="_blank" rel="noopener noreferrer">the board game</a> - CC SA–BY–NC 4.0</p>
+    <p>Created by <a href="https://github.com/ezwang" target="_blank" rel="noopener noreferrer">ezwang</a></p>
   </div>;
 };
 
 function App() {
-  return <Game /> 
+  return <Game />
 }
 
 type GameProps = {
@@ -114,18 +115,28 @@ enum PresidentialPower {
 
 type Uuid = string;
 type GameState = {
-  [key: string]: any,
+  election_tracker?: number,
   cards?: CardColor[],
   players: { [key: string]: { name: string, vote: boolean | null, role: "Hitler" | "Facist" | "Liberal" | null, dead: boolean } },
   turn_phase: { type: TurnPhase, winner?: CardColor, power?: PresidentialPower },
   host?: Uuid,
   president?: Uuid,
   chancellor?: Uuid,
+  last_president?: Uuid,
+  last_chancellor?: Uuid,
   turn_order: Uuid[],
   liberal_policies: number,
   facist_policies: number,
-  votes?: number
+  votes?: number,
+  cards_in_deck?: number,
+  cards_in_discard?: number,
 };
+
+const ElectionTracker = ({ num = 0 }: { num?: number }) => {
+  return <div className="electionTracker">
+    {[...Array(3).keys()].map(idx => <div key={idx} className={`electionDot ${num > idx && "active"}`} />)}
+  </div>
+}
 
 const Lobby = ({ gameState, playerId, gameId, onStart, onReset }: { gameState: GameState, playerId: Uuid, gameId: Uuid, onStart: () => void, onReset: () => void }) => {
   const numPlayers = Object.keys(gameState.players).length;
@@ -147,6 +158,36 @@ const Lobby = ({ gameState, playerId, gameId, onStart, onReset }: { gameState: G
   </>
 }
 
+function getPowerDisplayName(power?: PresidentialPower): string  {
+  switch (power) {
+    case PresidentialPower.ELECTION:
+      return "Elect as President";
+    case PresidentialPower.INVESTIGATE:
+      return "Investigate Affiliation";
+    case PresidentialPower.EXECUTE:
+      return "Kill";
+    case PresidentialPower.POLICY_PEEK:
+      return "Peek Policies";
+    default:
+      return "Unknown";
+  }
+}
+
+function getPowerDescription(power?: PresidentialPower | null): string  {
+  switch (power) {
+    case PresidentialPower.ELECTION:
+      return "The president pick the next presidential candidate.";
+    case PresidentialPower.INVESTIGATE:
+      return "The president investigates a player's identity card.";
+    case PresidentialPower.EXECUTE:
+      return "The president must kill a player.";
+    case PresidentialPower.POLICY_PEEK:
+      return "The president examines the top three cards.";
+    default:
+      return "Unknown";
+  }
+}
+
 const PlayerList = ({ gameState, playerId, onSelect } : { gameState: GameState, playerId: Uuid, onSelect?: (id: Uuid) => void }) => {
   // lobby player list
   if (gameState.turn_order.length <= 0) {
@@ -162,29 +203,35 @@ const PlayerList = ({ gameState, playerId, onSelect } : { gameState: GameState, 
   const isSelectingChancellor = gameState.turn_phase.type === TurnPhase.ELECTING && gameState.president === playerId;
   const isVoting = gameState.turn_phase.type === TurnPhase.VOTING;
 
+  const deadPlayers = Object.entries(gameState.players).filter(([id, data]) => data.dead).map(a => a[0]);
+
+  const isUsingPower = gameState.turn_phase.type === TurnPhase.POWER && gameState.turn_phase.power !== PresidentialPower.POLICY_PEEK && gameState.president === playerId;
+
   return <>
     <b>Players</b>
-    <ul className="playerList">
-      {gameState.turn_order.map(id => {
+    <div className="playerList">
+      {gameState.turn_order.concat(deadPlayers).map((id, idx) => {
         const playerData = gameState.players[id];
-        return <li key={id} className={playerId === id ? "self" : "other"}>
-          {playerData.name}
-          {gameState.president === id && <span className="role">{' '}(President)</span>}
-          {gameState.chancellor === id && <span className="role">{' '}(Chancellor{isVoting && " Elect"})</span>}
-          {playerData.role != null && <span className={`affiliation ${playerData.role.toLowerCase()}`}>{' '}({playerData.role})</span>}
-          {playerData.dead && <span>{' '}Dead</span>}
-          {isSelectingChancellor && id !== playerId && <button onClick={(e) => {
-            e.preventDefault();
-            onSelect && onSelect(id);
-          }}>Nominate as Chancellor</button>}
-          {playerData.vote != null && <span className="vote">{' '}({ gameState.players[id].vote ? "Aye": "Nay" })</span>}
-          {gameState.turn_phase.type === TurnPhase.POWER && gameState.turn_phase.power !== PresidentialPower.POLICY_PEEK && <button onClick={(e) => {
-            e.preventDefault();
-            onSelect && onSelect(id);
-          }}>{gameState.turn_phase.power}</button>}
-        </li>;
+        return <div key={id} className={`clearfix player ${playerId === id ? "self" : "other"}`}>
+          <div className="order">[{playerData.dead ? "Dead" : idx + 1}]</div>
+          {playerData.role != null ?
+            <span className={`affiliation ${playerData.role.toLowerCase()}`}><img src={`/images/profiles/${playerData.role.toLowerCase()}.png`} /></span> : 
+            <span className="affiliation"><div className="none">?</div></span>}
+          <div className="name">{playerData.name}{playerId === id && " (You)"}</div>
+          {gameState.president === id && <div className="role">President</div>}
+          {gameState.chancellor === id && <div className="role">{isVoting && "Nominated "}Chancellor</div>}
+          {playerData.vote != null && <div className="vote">Voted { gameState.players[id].vote ? "Yes": "No" }</div>}
+          {(isSelectingChancellor || isUsingPower) && !playerData.dead && id !== playerId &&
+            <button className="btn small" disabled={isSelectingChancellor && (gameState.last_chancellor === id || gameState.last_president === id)} onClick={(e) => {
+              e.preventDefault();
+              onSelect && onSelect(id);
+            }}>{isSelectingChancellor ?
+                (gameState.last_chancellor === id ? "Previous Chancellor" : gameState.last_president === id ? "Previous President" : "Nominate as Chancellor") :
+                getPowerDisplayName(gameState.turn_phase.power) }
+            </button>}
+        </div>;
       })}
-    </ul>
+    </div>
   </>
 }
 
@@ -195,27 +242,39 @@ const PlayerVote = ({ gameState, onSelect, playerId }: { gameState: GameState, o
   return <div className="voteBox">
     {gameState.chancellor != null && <div>Voting to elect <b>{gameState.players[gameState.chancellor].name}</b> as chancellor</div>}
     <p className="voteStatus"><b>{remaining}</b> voters remaining</p>
-    <button className={playerVote === true ? "active" : undefined} onClick={(e) => {
+    {!gameState.players[playerId].dead && <><button className={playerVote === true ? "active" : undefined} onClick={(e) => {
       e.preventDefault();
       onSelect(true);
     }}>Ja!<span className="helpText">(Yes)</span></button>
     <button className={playerVote === false ? "active" : undefined} onClick={(e) => {
       e.preventDefault();
       onSelect(false);
-    }}>Nien<span className="helpText">(No)</span></button>
+    }}>Nien<span className="helpText">(No)</span></button></>}
   </div>
 }
 
-const CardSelect = ({ cards, onSelect } : { cards?: CardColor[], onSelect: (card: CardColor) => void }) => {
-  if (cards == null) {
+const CardSelect = ({ gameState, onSelect, onVeto } : { gameState: GameState, onSelect: (card: CardColor) => void, onVeto: () => void }) => {
+  if (gameState.cards == null) {
+    if (gameState.turn_phase.type === TurnPhase.PRESIDENT_SELECT && gameState.president != null) {
+      return <div className="cardSelectBox"><p>President <b>{gameState.players[gameState.president].name}</b> is choosing a policy to discard</p></div>
+    }
+    else if (gameState.chancellor != null) {
+      return <div className="cardSelectBox"><p>Chancellor <b>{gameState.players[gameState.chancellor].name}</b> is choosing a policy to enact</p></div>
+    }
     return <div />
   }
+
   return <div className="cardSelectBox">
-    <p>{cards.length === 3 ? <>Choose the policy you would like to <b>discard</b></> : <>Choose the policy you would like to <b>enact</b></>}</p>
-    {cards.map((card, i) => <button className={`policySlot ${card.toLowerCase()} active`} key={i} onClick={(e) => {
+    <p>{gameState.turn_phase.type === TurnPhase.PRESIDENT_SELECT ? <>Choose the policy you would like to <b>discard</b></> : <>Choose the policy you would like to <b>enact</b></>}</p>
+    {gameState.cards.map((card, i) => <button className={`policySlot ${card.toLowerCase()} active`} key={i} onClick={(e) => {
       e.preventDefault();
       onSelect(card);
     }}><img src={`/images/${card.toLowerCase()}.png`} alt={`${card} card`} /></button>)}
+    {gameState.facist_policies >= 4 && <div className="vetoPowerBox">
+      <p>If both the president and chancellor agree, both policies will be discarded and the president placard passes.</p>
+      <p>Each use of the Veto Power represents an inactive government and advances the Election Tracker by one.</p>
+      <button className="btn" onClick={(e) => {e.preventDefault(); onVeto();}}>Veto</button>
+    </div>}
   </div>
 }
 
@@ -239,7 +298,9 @@ const CardTable = ({ gameState } : { gameState: GameState }) => {
       {[...Array(6).keys()].map(idx => {
         return <div key={idx} className={`facist policySlot ${gameState.facist_policies > idx ? "active" : "inactive"}`}>
           <img src="/images/facist.png" alt="facist card" />
-          {powers[idx] != null && <div>{powers[idx]}</div>}
+          {powers[idx] != null && <p>{getPowerDescription(powers[idx])}</p>}
+          {idx >= 3 && <p>Facists win if Hitler is elected as Chancellor.</p>}
+          {idx === 4 && <p>Veto power is unlocked.</p>}
         </div>
       })}
     </div>
@@ -254,15 +315,40 @@ const CardTable = ({ gameState } : { gameState: GameState }) => {
 };
 
 const PolicyPeek = ({ cards, onConfirm }: { cards: CardColor[], onConfirm: () => void }) => {
-  return <>
+  return <div className="policyPeek">
     <h3>Peek at the next 3 cards</h3>
-    <div>
+    <div className="mb-1">
       {cards.map((card, idx) => <div key={idx} className={`${card.toLowerCase()} policySlot active`}><img src={`/images/${card.toLowerCase()}.png`} alt={`${card.toLowerCase()} card`} /></div>)}
     </div>
-    <button onClick={(e) => {
+    <button className="btn" onClick={(e) => {
       e.preventDefault();
       onConfirm();
     }}>Confirm</button>
+  </div>
+};
+
+const QuitButton = ({ gameState, playerId, onQuit }: { gameState: GameState, playerId: Uuid, onQuit: () => void }) => {
+  const [isOpen, setOpen] = useState<boolean>(false);
+
+  return <>
+    {isOpen && <div className="dialog">
+        <h1>Quit Game</h1>
+        <p><b>Are you sure you want to quit?</b> This game will not be able to continue without you!</p>
+        <button className="btn" onClick={(e) => {
+          e.preventDefault();
+          setOpen(false);
+          onQuit();
+        }}>Quit Game</button>
+      </div>}
+    <a href="#" onClick={(e) => {
+      e.preventDefault();
+      if (gameState.turn_phase.type === TurnPhase.LOBBY || gameState.turn_phase.type === TurnPhase.ENDED || gameState.players[playerId].dead) {
+        onQuit();
+      }
+      else {
+        setOpen((open) => !open);
+      }
+    }}>Quit</a>
   </>
 };
 
@@ -306,6 +392,18 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
     }
   }, [gameState]);
   
+  const reset = () => {
+    ws.current?.send(JSON.stringify({ type: "Leave" }));
+    setPlayerId(null);
+    setGameId(null);
+    setChatLines([]);
+    setAlert(null);
+    localStorage.removeItem("gameId");
+    localStorage.removeItem(`playerId${suffix}`);
+    localStorage.removeItem(`playerSecret${suffix}`);
+    setGameState((state) => ({ ...state, turn_phase: { type: TurnPhase.INTRO } }));
+  };
+
   const connect = () => {
     ws.current = new WebSocket(`${window.location.protocol.replace('http', 'ws')}//${window.location.hostname === "localhost" ? "localhost:8000" : window.location.host}/ws/`);
     ws.current.onopen = () => {
@@ -316,6 +414,9 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
       if (finalPlayerId != null && nickname != null && finalPlayerSecret != null) {
         ws.current?.send(JSON.stringify({type: "JoinGame", "nickname": nickname, "id": gameId, "player_id": finalPlayerId, "player_secret": finalPlayerSecret}));
         ws.current?.send(JSON.stringify({ type: "GetChatLog" }));
+      }
+      else {
+        setLoading(false);
       }
     };
     ws.current.onclose = () => {
@@ -364,7 +465,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
       <div className="welcome">
         <h1>Secret Hitler</h1>
         <p>A social deduction game for 5-10 people</p>
-        <IntroPrompt suffix={suffix} nickname={nickname} alert={alert} onSubmit={(nick, game) => {
+        <IntroPrompt suffix={suffix} nickname={nickname} gameId={gameId} alert={alert} onSubmit={(nick, game) => {
           localStorage.setItem(`nickname${suffix}`, nick);
           if (connected) {
             ws.current?.send(JSON.stringify({ "type": game != null ? "JoinGame" : "HostGame", "nickname": nick, "id": game }));
@@ -387,17 +488,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
           playerId={playerId}
           gameId={gameId ?? ""}
           onStart={() => ws.current?.send(JSON.stringify({ type: "StartGame" }))}
-          onReset={() => {
-            ws.current?.send(JSON.stringify({ type: "Leave" }));
-            setPlayerId(null);
-            setGameId(null);
-            setChatLines([]);
-            setAlert(null);
-            localStorage.removeItem("gameId");
-            localStorage.removeItem(`playerId${suffix}`);
-            localStorage.removeItem(`playerSecret${suffix}`);
-            setGameState((state) => ({...state, turn_phase: { type: TurnPhase.INTRO }}));
-          }} /> : <div>
+          onReset={reset} /> : <div>
         <PlayerList gameState={gameState} playerId={playerId} onSelect={(id) => {
           if (gameState.turn_phase.type === TurnPhase.ELECTING) {
             ws.current?.send(JSON.stringify({ "type": "ChooseChancellor", "player": id }));
@@ -406,24 +497,28 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
             ws.current?.send(JSON.stringify({ "type": "PresidentialPower", "player": id }));
           }
         }} />
+        <p style={{textAlign: "center"}}>There are <b>{gameState.cards_in_deck ?? 0}</b> cards in the draw pile and <b>{gameState.cards_in_discard ?? 0}</b> cards in the discard pile</p>
+        <ElectionTracker num={gameState.election_tracker} />
         <CardTable gameState={gameState} />
         {gameState.turn_phase.type === TurnPhase.VOTING && <PlayerVote gameState={gameState} playerId={playerId} onSelect={(vote) => {
           ws.current?.send(JSON.stringify({ "type": "VoteChancellor", vote: vote }));
         }} />}
-        {gameState.turn_phase.type === TurnPhase.PRESIDENT_SELECT && gameState.president === playerId && <CardSelect cards={gameState.cards} onSelect={(card) => {
+        {(gameState.turn_phase.type === TurnPhase.PRESIDENT_SELECT || gameState.turn_phase.type === TurnPhase.CHANCELLOR_SELECT) && <CardSelect gameState={gameState} onSelect={(card) => {
           ws.current?.send(JSON.stringify({ "type": "PickCard", color: card === CardColor.FACIST }));
+        }} onVeto={() => {
+          ws.current?.send(JSON.stringify({ "type": "VetoCard" }));
         }} />}
-        {gameState.turn_phase.type === TurnPhase.CHANCELLOR_SELECT && gameState.chancellor === playerId && <CardSelect cards={gameState.cards} onSelect={(card) => {
-          ws.current?.send(JSON.stringify({ "type": "PickCard", color: card === CardColor.FACIST }));
-        }} />}
-        {gameState.turn_phase.type === TurnPhase.POWER && gameState.turn_phase.power === PresidentialPower.POLICY_PEEK && <PolicyPeek cards={gameState.cards ?? []} onConfirm={() => {
+        {gameState.turn_phase.type === TurnPhase.POWER && gameState.turn_phase.power === PresidentialPower.POLICY_PEEK && playerId === gameState.president && <PolicyPeek cards={gameState.cards ?? []} onConfirm={() => {
           ws.current?.send(JSON.stringify({ "type": "PresidentialPower" }));
         }} />}
-        {gameState.turn_phase.type === TurnPhase.ENDED && <h1>Game Over! {gameState.turn_phase.winner}s win!</h1>}
+        {gameState.turn_phase.type === TurnPhase.ENDED && <div className="gameOverBox"><h1>Game Over! {gameState.turn_phase.winner}s win!</h1></div>}
+        {gameState.turn_phase.type === TurnPhase.ELECTING && gameState.president != null && <div className="infoBox">President <b>{gameState.players[gameState.president].name}</b> is electing a chancellor</div>}
       </div>}
     </div>
     <ChatBox playerId={playerId} gameState={gameState} lines={chatLines} onSubmit={(line) => ws.current?.send(JSON.stringify({type: "SendChat", message: line}))} />
-    {!connected && <div className="disconnected">Disconnected</div>}
+    <div className="footer">
+      <a href="https://www.secrethitler.com/assets/Secret_Hitler_Rules.pdf" target="_blank" rel="noopener noreferrer">Rules</a> - <QuitButton gameState={gameState} playerId={playerId} onQuit={reset} />
+     {!connected && <> - <span className="disconnected">Disconnected</span></>}</div>
   </div>;
 }
 
