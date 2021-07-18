@@ -306,7 +306,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
   }, [gameState]);
   
   const connect = () => {
-    ws.current = new WebSocket("ws://localhost:8000/ws/");
+    ws.current = new WebSocket(`${window.location.protocol.replace('http', 'ws')}//${window.location.host}/ws/`);
     ws.current.onopen = () => {
       setConnected(true);
       const finalPlayerId = playerId ?? localStorage.getItem(`playerId${suffix}`);
