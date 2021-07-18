@@ -1,9 +1,9 @@
 use serde::{Serialize, Deserialize, ser::SerializeMap};
 use uuid::Uuid;
 use rand::{seq::SliceRandom, thread_rng};
-use std::{collections::HashMap, time::SystemTime};
+use std::{collections::{HashMap, LinkedList}, time::SystemTime};
 
-use crate::protocol::{ConnectionState, PlayerConnection, ServerProtocol};
+use crate::protocol::{ConnectionState, PlayerConnection, ServerProtocol, send_to_all};
 
 #[derive(Clone, Copy, Serialize)]
 pub enum PlayerType {
@@ -55,8 +55,15 @@ pub enum CardColor {
     Liberal
 }
 
+#[derive(Serialize)]
+pub struct ChatLine {
+    pub id: Option<Uuid>,
+    pub message: String
+}
+
 pub struct GameState {
     pub conn: ConnectionState,
+    pub chat_log: LinkedList<ChatLine>,
     pub timeout: Option<SystemTime>,
 
     players: HashMap<Uuid, PlayerState>,
@@ -122,7 +129,7 @@ impl Serialize for GameStatePlayerView<'_> {
                 (k, PartialPlayerState {
                     name: self.state.conn.get(&k).unwrap().name.clone().unwrap_or_default(),
                     role: if matches!(self.state.turn_phase, TurnPhase::Ended { winner: _ }) || self.player == *k || matches!(role, PlayerType::Facist) || (matches!(role, PlayerType::Hitler) && self.state.players.len() <= 6) || investigated.contains(k) { Some(v.role) } else { None },
-                    vote: if matches!(self.state.turn_phase, TurnPhase::Voting) { None } else { v.vote },
+                    vote: if matches!(self.state.turn_phase, TurnPhase::Voting) && self.player != *k { None } else { v.vote },
                     dead: v.dead
                 })
             }).collect::<HashMap<&Uuid, PartialPlayerState>>())?;
@@ -163,6 +170,7 @@ impl GameState {
     pub fn new() -> GameState {
         GameState {
             conn: ConnectionState::default(),
+            chat_log: LinkedList::default(),
 
             timeout: None,
             players: HashMap::new(),
@@ -195,9 +203,16 @@ impl GameState {
                 return false
             }
         }
-        self.conn.insert(player_id, player_connection);
+        let name = player_connection.name.clone().unwrap_or_default();
+        let is_new = self.conn.insert(player_id, player_connection).is_none();
         if !self.players.contains_key(&player_id) {
             self.players.insert(player_id, PlayerState { role: PlayerType::Liberal, vote: None, dead: false });
+            if is_new {
+                self.add_chat(ChatLine { id: None, message: format!("{} has joined the game", name) });
+            }
+            else {
+                self.add_chat(ChatLine { id: None, message: format!("{} has reconnected", name) });
+            }
         }
         if self.host == None {
             self.host = Some(player_id);
@@ -219,7 +234,12 @@ impl GameState {
         self.conn.iter().any(|(_, c)| c.connected)
     }
 
-    /// Remove a player during the lobby phase and return true.
+    fn add_chat(&mut self, line: ChatLine) -> () {
+        send_to_all(&self.conn, &ServerProtocol::ReceiveChat { id: line.id, message: line.message.clone() });
+        self.chat_log.push_back(line);
+    }
+
+    /// Disconnect a player during the lobby phase and return true.
     /// If the game has started, mark the connection as disconnected instead and return false.
     pub fn remove_player(&mut self, player: Uuid) -> bool {
         if matches!(self.turn_phase, TurnPhase::Lobby) {
@@ -230,10 +250,41 @@ impl GameState {
                     None => None
                 };
             }
+            let player_connection = self.conn.get(&player);
+            if let Some(plr) = player_connection {
+                self.add_chat(ChatLine { id: None, message: format!("{} has disconnected", plr.name.clone().unwrap_or_default()) });
+            }
             return true
         }
         else if let Some(conn) = self.conn.get_mut(&player) {
             conn.connected = false;
+        }
+        false
+    }
+
+    /// Remove a player during the lobby phase and return true.
+    pub fn delete_player(&mut self, player: Uuid) -> bool {
+        if matches!(self.turn_phase, TurnPhase::Lobby) {
+            self.players.remove(&player);
+            if self.host == Some(player) {
+                self.host = match self.players.keys().next() {
+                    Some(uuid) => Some(*uuid),
+                    None => None
+                }
+            }
+            if let Some(plr) = self.conn.remove(&player) {
+                self.add_chat(ChatLine { id: None, message: format!("{} has left the lobby", plr.name.unwrap_or_default()) });
+            }
+            return true
+        }
+        else {
+            let name = match self.conn.get(&player) {
+                Some(plr) => plr.name.clone(),
+                None => None,
+            };
+            if let Some(name) = name {
+                self.add_chat(ChatLine { id: None, message: format!("{} has left the game", name) });
+            }
         }
         false
     }

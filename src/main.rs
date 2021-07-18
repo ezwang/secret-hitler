@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::{Arc, RwLock}, time::{Duration, SystemTime}};
 
-use game_state::{CardColor, GameState};
+use game_state::{CardColor, GameState, ChatLine};
 use protocol::{ClientProtocol, PlayerConnection, ServerProtocol, send_to_all};
 use tokio::{sync::mpsc, time};
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -169,10 +169,9 @@ async fn ws_connect(ws: WebSocket, state: GlobalState) {
                         if let Some(game) = current_game {
                             if let Some(state) = state.read().unwrap().get(&game) {
                                 if let Some(player) = current_player {
-                                    let state = &state.read().unwrap();
-                                    if let Some(player) = state.conn.get(&player) {
-                                        send_to_all(&state.conn, &ServerProtocol::ReceiveChat { name: player.name.clone().unwrap_or_default(), message });
-                                    }
+                                    let state = &mut state.write().unwrap();
+                                    state.chat_log.push_back(ChatLine { id: Some(player), message: message.clone() });
+                                    send_to_all(&state.conn, &ServerProtocol::ReceiveChat { id: Some(player), message });
                                 }
                             }
                         }
@@ -201,6 +200,25 @@ async fn ws_connect(ws: WebSocket, state: GlobalState) {
                         game_state_wrapper(&state, &current_game, &current_player, &|gs: &mut GameState, pid| {
                             gs.execute_presidential_power(*pid, player)
                         });
+                    },
+                    ClientProtocol::GetChatLog => {
+                        if let Some(game) = current_game {
+                            if let Some(state) = state.read().unwrap().get(&game) {
+                                let log = &state.read().unwrap().chat_log;
+                                PlayerConnection::new(ptx.clone()).send(&ServerProtocol::ChatLog { log });
+                            }
+                        }
+                    },
+                    ClientProtocol::Leave => {
+                        if let Some(game) = current_game {
+                            if let Some(state) = state.read().unwrap().get(&game) {
+                                if let Some(player) = current_player {
+                                    &state.write().unwrap().delete_player(player);
+                                }
+                                current_game = None;
+                                current_player = None;
+                            }
+                        }
                     },
                 }
             }

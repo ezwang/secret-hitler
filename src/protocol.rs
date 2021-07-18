@@ -1,11 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::{HashMap, LinkedList}, sync::Arc};
 
 use serde::{Serialize, Deserialize};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 use warp::ws::Message;
 
-use crate::game_state::{GameStatePlayerView, PlayerType};
+use crate::game_state::{ChatLine, GameStatePlayerView, PlayerType};
 
 pub type ConnectionState = HashMap<Uuid, PlayerConnection>;
 
@@ -21,6 +21,8 @@ pub enum ClientProtocol {
     PickCard { color: bool },
     VetoCard,
     PresidentialPower { player: Option<Uuid> },
+    GetChatLog,
+    Leave,
 }
 
 #[derive(Serialize)]
@@ -34,8 +36,9 @@ struct PlayerData {
 pub enum ServerProtocol<'a> {
     SetIdentifiers { player_id: Uuid, game_id: Uuid, secret: Uuid },
     Alert { message: String },
-    ReceiveChat { name: String, message: String },
+    ReceiveChat { id: Option<Uuid>, message: String },
     GameState { state: GameStatePlayerView<'a> },
+    ChatLog { log: &'a LinkedList<ChatLine> },
 }
 
 pub struct PlayerConnection {
