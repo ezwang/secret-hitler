@@ -216,7 +216,9 @@ async fn ws_connect(ws: WebSocket, state: GlobalState) {
                         if let Some(game) = current_game {
                             if let Some(state) = state.read().unwrap().get(&game) {
                                 if let Some(player) = current_player {
-                                    &state.write().unwrap().delete_player(player);
+                                    let state = &mut state.write().unwrap();
+                                    state.delete_player(player);
+                                    state.broadcast_game_state();
                                 }
                                 current_game = None;
                                 current_player = None;
@@ -236,6 +238,7 @@ async fn ws_connect(ws: WebSocket, state: GlobalState) {
             if let Some(game) = state.read().unwrap().get(&game_uuid) {
                 let game = &mut game.write().unwrap();
                 game.remove_player(player_uuid);
+                game.broadcast_game_state();
                 remove_game = !game.has_connected_players();
             }
         }

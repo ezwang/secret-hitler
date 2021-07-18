@@ -30,10 +30,10 @@ const ChatBox = ({ gameState, lines, onSubmit, playerId }: { playerId: Uuid, gam
   return <div className="chat">
     <div ref={chatOutput} className="lines">{lines.map((l, i) => {
       if (l.id != null) {
-        if (!showDead && gameState.players[l.id].dead) {
+        if (!showDead && gameState.players[l.id]?.dead) {
           return null
         }
-        return <div key={i}><b>{gameState.players[l.id].name}</b> {l.message}</div>
+        return <div key={i}><b>{gameState.players[l.id]?.name ?? "Unknown"}</b> {l.message}</div>
       }
       else {
         return <div key={i} className="system">{l.message}</div>
