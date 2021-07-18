@@ -138,14 +138,23 @@ const ElectionTracker = ({ num = 0 }: { num?: number }) => {
   </div>
 }
 
+const CopyToClipboard = ({ url }: { url: string }) => {
+  return <a href={url} onClick={(e) => {
+    e.preventDefault();
+    navigator.clipboard.writeText(url);
+  }}>{url}</a>
+};
+
 const Lobby = ({ gameState, playerId, gameId, onStart, onReset }: { gameState: GameState, playerId: Uuid, gameId: Uuid, onStart: () => void, onReset: () => void }) => {
   const numPlayers = Object.keys(gameState.players).length;
   const isHost = playerId === gameState.host;
+  const url = `${window.location.origin}/game/${gameId}`
 
   return <>
     <h1>Secret Hitler Lobby</h1>
     <p className="loading">Waiting for players</p>
     <p><b>Join Code: </b> {gameId}</p>
+    <p><b>Link: </b> <CopyToClipboard url={url} /> (Click to Copy)</p>
     <div className="mb-3">
       <PlayerList gameState={gameState} playerId={playerId} />
     </div>
@@ -352,6 +361,14 @@ const QuitButton = ({ gameState, playerId, onQuit }: { gameState: GameState, pla
   </>
 };
 
+function getWindowGameId(): string | null {
+  const match = window.location.pathname.match(/^\/game\/(.*?)(\/|$)/);
+  if (match == null) {
+    return null;
+  }
+  return match[1];
+}
+
 function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
   const [alert, setAlert] = useState<string | null>(null);
   const [gameState, setGameState] = useState<GameState>({ players: {}, turn_phase: { type: TurnPhase.INTRO }, turn_order: [], liberal_policies: 0, facist_policies: 0 });
@@ -360,7 +377,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
   const [playerId, setPlayerId] = useState<Uuid | null>(localStorage.getItem(`playerId${suffix}`));
   const [playerSecret, setPlayerSecret] = useState<Uuid | null>(localStorage.getItem(`playerSecret${suffix}`));
   
-  const [gameId, setGameId] = useState<Uuid | null>(initialGameId ?? localStorage.getItem("gameId"));
+  const [gameId, setGameId] = useState<Uuid | null>(getWindowGameId() ?? initialGameId ?? localStorage.getItem("gameId"));
   const [connected, setConnected] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(gameId != null);
   

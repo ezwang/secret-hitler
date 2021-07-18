@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::{Arc, RwLock}, time::{Duration, SystemTime}};
 
 use game_state::{CardColor, GameState, ChatLine};
-use protocol::{ClientProtocol, PlayerConnection, ServerProtocol, send_to_all};
+use protocol::{ClientProtocol, PlayerConnection, ServerProtocol};
 use tokio::{sync::mpsc, time};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
@@ -34,9 +34,13 @@ async fn main() {
     let state_ref = orig_global_state.clone();
     let global_state = warp::any().map(move || orig_global_state.clone());
 
-    let routes = warp::path("ws").and(warp::ws()).and(global_state).map(|ws: warp::ws::Ws, state: GlobalState| {
+    let ws_route = warp::path("ws").and(warp::ws()).and(global_state).map(|ws: warp::ws::Ws, state: GlobalState| {
         ws.on_upgrade(|socket| ws_connect(socket, state))
-    }).or(warp::any().and(warp::get()).and(warp::fs::dir("frontend/build")));
+    });
+    let game_route = warp::path!("game" / String).map(|_| ()).untuple_one().and(warp::get()).and(warp::fs::file("frontend/build/index.html"));
+    let static_route = warp::any().and(warp::get()).and(warp::fs::dir("frontend/build"));
+
+    let routes = ws_route.or(game_route).or(static_route);
 
     // game cleanup routine
     let mut interval = time::interval(Duration::from_secs(5 * 60));
