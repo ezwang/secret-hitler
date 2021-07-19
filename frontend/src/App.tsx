@@ -21,7 +21,7 @@ const ChatBox = ({ gameState, lines, onSubmit, playerId }: { playerId: Uuid, gam
   const [line, setLine] = useState<string>("");
   const chatOutput = useRef<HTMLDivElement>(null);
 
-  const showDead = gameState.turn_phase.type === TurnPhase.ENDED || gameState.players[playerId].dead;
+  const showDead = gameState.turn_phase.type === TurnPhase.ENDED || gameState.players[playerId]?.dead;
 
   useEffect(() => {
     if (chatOutput.current != null) {
