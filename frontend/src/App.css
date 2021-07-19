@@ -168,6 +168,7 @@ div.playerList .affiliation img {
 }
 .chat .lines .line {
   margin-top: 5px;
+  padding: 0 5px;
 }
 .chat .lines .system {
   color: #666;
@@ -217,7 +218,7 @@ div.playerList .affiliation img {
 .policySlot {
   display: inline-block;
   padding: 15px;
-  border: 1px solid grey;
+  border: 1px dashed grey;
 }
 
 .policySlot img {

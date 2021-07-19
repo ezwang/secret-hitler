@@ -453,7 +453,9 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
   }, [gameState]);
   
   const reset = () => {
-    ws.current?.send(JSON.stringify({ type: "Leave" }));
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current?.send(JSON.stringify({ type: "Leave" }));
+    }
     setPlayerId(null);
     setGameId(null);
     setChatLines([]);
@@ -515,7 +517,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
     return <div className="content">
       <div className="welcome">
         <h1>Secret Hitler</h1>
-        <p>Reconnecting to previous game...</p>
+        {connected ? <p>Reconnecting to previous game...</p> : <p>Connecting to server...</p>}
       </div>
     </div>;
   }
@@ -527,7 +529,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
         <p>A social deduction game for 5-10 people</p>
         <IntroPrompt suffix={suffix} nickname={nickname} gameId={gameId} alert={alert} clickedLink={!!windowGameId} onSubmit={(nick, game) => {
           localStorage.setItem(`nickname${suffix}`, nick);
-          if (connected) {
+          if (ws.current?.readyState === WebSocket.OPEN) {
             ws.current?.send(JSON.stringify({ "type": game != null ? "JoinGame" : "HostGame", "nickname": nick, "id": game }));
             setAlert(null);
           }
