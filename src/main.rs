@@ -252,20 +252,18 @@ async fn ws_connect(ws: WebSocket, state: GlobalState) {
 }
 
 fn game_state_wrapper(state: &GlobalState, game_id: &Option<Uuid>, player_id: &Option<Uuid>, func: &dyn Fn(&mut GameState, &Uuid) -> Result<(), &'static str>) -> bool {
-    if let Some(game_id) = game_id {
-        if let Some(player_id) = player_id {
-            if let Some(state) = state.read().unwrap().get(game_id) {
-                let state = &mut state.write().unwrap();
-                match func(state, player_id) {
-                    Ok(_) => {
-                        state.broadcast_game_state();
-                    },
-                    Err(str) => {
-                        state.conn.get(&player_id).unwrap().send(&ServerProtocol::Alert { message: str.into() });
-                    }
+    if let (Some(game_id), Some(player_id)) = (game_id, player_id) {
+        if let Some(state) = state.read().unwrap().get(game_id) {
+            let state = &mut state.write().unwrap();
+            match func(state, player_id) {
+                Ok(_) => {
+                    state.broadcast_game_state();
+                },
+                Err(str) => {
+                    state.conn.get(&player_id).unwrap().send(&ServerProtocol::Alert { message: str.into() });
                 }
-                return true
             }
+            return true
         }
     }
     false

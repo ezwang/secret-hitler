@@ -1,5 +1,7 @@
 import { useRef } from 'react';
 import { useState, useEffect, ReactElement } from 'react';
+import Draggable from 'react-draggable';
+import confetti from 'canvas-confetti';
 import './App.css';
 
 import reactStringReplace from 'react-string-replace';
@@ -359,6 +361,15 @@ const GameOver = ({ gameState }: { gameState: GameState }) => {
   let reason = "The game has ended.";
   const [hitlerId, hitlerPlayer] = Object.entries(gameState.players).find(plr => plr[1].role === "Hitler") ?? [null, null];
 
+  useEffect(() => {
+    confetti({
+      particleCount: 100,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: [gameState.turn_phase.winner === CardColor.FACIST ? "#ff0000" : "#0000ff"]
+    });
+  }, []);
+
   if (gameState.liberal_policies >= 5) {
     reason = "Liberals have enacted 5 policies.";
   }
@@ -373,7 +384,7 @@ const GameOver = ({ gameState }: { gameState: GameState }) => {
   }
 
   return <div className="gameOverBox">
-    <h1>Game Over! {gameState.turn_phase.winner}s win!</h1>
+    <h1>Game Over! <span className={`affiliation ${gameState.turn_phase.winner?.toLowerCase()}`}>{gameState.turn_phase.winner}s</span> win!</h1>
     <p>{reason}</p>
   </div>;
 }
@@ -382,7 +393,7 @@ const QuitButton = ({ gameState, playerId, onQuit }: { gameState: GameState, pla
   const [isOpen, setOpen] = useState<boolean>(false);
 
   return <>
-    {isOpen && <div className="dialog">
+    {isOpen && <Draggable cancel=".btn"><div className="dialog">
         <h1>Quit Game</h1>
         <p><b>Are you sure you want to quit?</b> This game will not be able to continue without you!</p>
         <button className="btn" onClick={(e) => {
@@ -390,7 +401,7 @@ const QuitButton = ({ gameState, playerId, onQuit }: { gameState: GameState, pla
           setOpen(false);
           onQuit();
         }}>Quit Game</button>
-      </div>}
+      </div></Draggable>}
     <a href="#" onClick={(e) => {
       e.preventDefault();
       if (gameState.turn_phase.type === TurnPhase.LOBBY || gameState.turn_phase.type === TurnPhase.ENDED || gameState.players[playerId].dead) {
@@ -401,6 +412,50 @@ const QuitButton = ({ gameState, playerId, onQuit }: { gameState: GameState, pla
       }
     }}>Quit</a>
   </>
+};
+
+const TipDialog = ({ role, onClose }: { role: "Hitler" | "Facist" | "Liberal" | null, onClose: () => void }) => {
+  if (role == null) {
+    return null;
+  }
+  return <Draggable cancel=".btn,img"><div className="tipDialog clearfix">
+    <button className="btn small float-right" onClick={(e) => {
+      e.preventDefault();
+      onClose();
+    }}>Close</button>
+    <h1>Your role is <b className={`affiliation ${role.toLowerCase()}`}>{role}</b>!</h1>
+    <div className="roleIcons">
+      <div className={role === "Liberal" ? "active" : undefined}><img src="/images/profiles/liberal.png" alt="liberals" /><div>Liberals</div></div>
+      <div className={role === "Facist" ? "active" : undefined}><img src="/images/profiles/facist.png" alt="facists" /><div>Facists</div></div>
+      <div className={role === "Hitler" ? "active" : undefined}><img src="/images/profiles/hitler.png" alt="hitlers" /><div>Hitler</div></div>
+    </div>
+    {role === "Liberal" ?
+      <div>
+        <p>Players on the Liberal team win if either:</p>
+        <ul>
+          <li>Five Liberal Policies are enacted.</li>
+          <li>Hitler is assassinated.</li>
+        </ul>
+      </div> :
+      <div>
+        <p>Players on the Fascist team win if either:</p>
+        <ul>
+          <li>Six Fascist Policies are enacted.</li>
+          <li>Hitler is elected Chancellor any time after the third Fascist Policy has been enacted.</li>
+        </ul>
+        <p>Hitler plays for the Fascist team, and the Fascists know Hitler's identity from the outset, but Hitler doesn't know the Fascists and must work to figure them out.</p>
+      </div>
+    }
+    <b>Strategy Notes for {role}s</b>
+    <ul className="tips">
+      {role === "Hitler" && <li><b>If this is your first time playing Hitler, just remember: be as Liberal as possible.</b> Enact Liberal Policies. Vote for Liberal governments. Kiss babies. Trust your fellow Fascists to create opportunities for you to enact Liberal Policies and to advance Fascism on their turns. The Fascists win by subtly manipulating the table and waiting for the right cover to enact Fascist Policies, not by overtly playing as evil.</li>}
+      <li><b>Everyone should claim to be a Liberal.</b> Since the Liberal team has a voting majority, it can easily shut out any player claiming to be a Fascist. As a Fascist, there is no advantage to outing yourself to the majority. Additionally, Liberals should usually tell the truth. Liberals are trying to figure out the game like a puzzle, so lying can put their team at a significant disadvantage.</li>
+      <li><b>Liberals frequently benefit from slowing play down and discussing the available information.</b> Fascists frequently benefit from rushing votes and creating confusion.</li>
+      {role !== "Liberal" && <li><b>Fascists most often win by electing Hitler, not by enacting six Policies!</b> Electing Hitler isn't an optional or secondary win condition, it's the core of a successful Fascist strategy. Hitler should always play as a Liberal, and should generally avoid lying or getting into fights and disagreements with other players. When the time comes, Hitler needs the Liberals' trust to get elected. Even if Hitler isn't ultimately elected, the distrust sown among Liberals is key to getting Fascists elected late in the game.</li>}
+      <li><b>Ask other players to explain why they took an action.</b> This is especially important with Presidential Powers - in fact, ask ahead of time whom a candidate is thinking of investigating/appointing/assassinating.</li>
+      {role === "Liberal" && <li><b>If a Fascist Policy comes up, there are only three possible culprits: The President, the Chancellor, or the Policy Deck.</b> Try to figure out who (or what!) put you in this position.</li>}
+    </ul>
+  </div></Draggable>;
 };
 
 function getWindowGameId(): string | null {
@@ -423,6 +478,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
   const [gameId, setGameId] = useState<Uuid | null>(windowGameId ?? initialGameId ?? localStorage.getItem("gameId"));
   const [connected, setConnected] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(gameId != null);
+  const [showTips, setShowTips] = useState<boolean>(true);
   
   const ws = useRef<WebSocket | null>(null);
 
@@ -575,11 +631,12 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
         }} />}
         {gameState.turn_phase.type === TurnPhase.ENDED && <GameOver gameState={gameState} />}
         {gameState.turn_phase.type === TurnPhase.ELECTING && gameState.president != null && <div className="infoBox">President <b>{gameState.players[gameState.president].name}</b> is electing a chancellor</div>}
+        {showTips && <TipDialog onClose={() => setShowTips(false)} role={gameState.players[playerId]?.role ?? null} />}
       </div>}
     </div>
     <ChatBox playerId={playerId} gameState={gameState} lines={chatLines} onSubmit={(line) => ws.current?.send(JSON.stringify({type: "SendChat", message: line}))} />
     <div className="footer">
-      <a href="https://www.secrethitler.com/assets/Secret_Hitler_Rules.pdf" target="_blank" rel="noopener noreferrer">Rules</a> - <QuitButton gameState={gameState} playerId={playerId} onQuit={reset} />
+      <a href="https://www.secrethitler.com/assets/Secret_Hitler_Rules.pdf" target="_blank" rel="noopener noreferrer">Rules</a> - <a href="#" onClick={(e) => {e.preventDefault(); setShowTips(tips => !tips)}}>Tips</a> - <QuitButton gameState={gameState} playerId={playerId} onQuit={reset} />
      {!connected && <> - <span className="disconnected">Disconnected</span></>}</div>
   </div>;
 }
