@@ -2,6 +2,8 @@ import { useRef } from 'react';
 import { useState, useEffect, ReactElement } from 'react';
 import './App.css';
 
+import reactStringReplace from 'react-string-replace';
+
 enum TurnPhase {
   INTRO = "Intro",
   LOBBY = "Lobby",
@@ -33,10 +35,10 @@ const ChatBox = ({ gameState, lines, onSubmit, playerId }: { playerId: Uuid, gam
         if (!showDead && gameState.players[l.id]?.dead) {
           return null
         }
-        return <div key={i}><b>{gameState.players[l.id]?.name ?? "Unknown"}</b> {l.message}</div>
+        return <div key={i} className="line"><b>{gameState.players[l.id]?.name ?? "Unknown"}</b> {l.message}</div>
       }
       else {
-        return <div key={i} className="system">{l.message}</div>
+        return <div key={i} className="system">{reactStringReplace(l.message, /\s(liberals?|facists?)/ig, (match) => <>{' '}<span style={{ fontWeight: "bold", color: match.toLowerCase().startsWith("facist") ? "red" : "blue" }}>{match}</span>{' '}</>)}</div>
       }
     })}</div>
     <input placeholder="Press enter to send" type="text" value={line} onChange={e => setLine(e.target.value)} onKeyDown={e => {
@@ -92,6 +94,15 @@ const IntroPrompt = ({ nickname: initialNickname, suffix, alert, onSubmit, gameI
 };
 
 function App() {
+  if (window.location.hostname === "localhost") {
+    return <>
+      <Game nickname="jack" suffix="0" />
+      <Game nickname="joe" suffix="1" />
+      <Game nickname="john" suffix="2" />
+      <Game nickname="jill" suffix="3" />
+      <Game nickname="james" suffix="4" />
+    </>
+  }
   return <Game />
 }
 
@@ -336,6 +347,29 @@ const PolicyPeek = ({ cards, onConfirm }: { cards: CardColor[], onConfirm: () =>
   </div>
 };
 
+const GameOver = ({ gameState }: { gameState: GameState }) => {
+  let reason = "The game has ended.";
+  const [hitlerId, hitlerPlayer] = Object.entries(gameState.players).find(plr => plr[1].role === "Hitler") ?? [null, null];
+
+  if (gameState.liberal_policies >= 5) {
+    reason = "Liberals have enacted 5 policies.";
+  }
+  else if (gameState.facist_policies >= 6) {
+    reason = "Facists have enacted 6 policies.";
+  }
+  else if (gameState.facist_policies > 3 && hitlerId == gameState.chancellor) {
+    reason = "Hitler has been elected chancellor.";
+  }
+  else if (hitlerPlayer?.dead) {
+    reason = "Hitler has been killed.";
+  }
+
+  return <div className="gameOverBox">
+    <h1>Game Over! {gameState.turn_phase.winner}s win!</h1>
+    <p>{reason}</p>
+  </div>;
+}
+
 const QuitButton = ({ gameState, playerId, onQuit }: { gameState: GameState, playerId: Uuid, onQuit: () => void }) => {
   const [isOpen, setOpen] = useState<boolean>(false);
 
@@ -528,7 +562,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
         {gameState.turn_phase.type === TurnPhase.POWER && gameState.turn_phase.power === PresidentialPower.POLICY_PEEK && playerId === gameState.president && <PolicyPeek cards={gameState.cards ?? []} onConfirm={() => {
           ws.current?.send(JSON.stringify({ "type": "PresidentialPower" }));
         }} />}
-        {gameState.turn_phase.type === TurnPhase.ENDED && <div className="gameOverBox"><h1>Game Over! {gameState.turn_phase.winner}s win!</h1></div>}
+        {gameState.turn_phase.type === TurnPhase.ENDED && <GameOver gameState={gameState} />}
         {gameState.turn_phase.type === TurnPhase.ELECTING && gameState.president != null && <div className="infoBox">President <b>{gameState.players[gameState.president].name}</b> is electing a chancellor</div>}
       </div>}
     </div>

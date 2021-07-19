@@ -55,6 +55,15 @@ pub enum CardColor {
     Liberal
 }
 
+impl std::fmt::Display for CardColor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CardColor::Facist => write!(f, "facist"),
+            CardColor::Liberal => write!(f, "liberal")
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct ChatLine {
     pub id: Option<Uuid>,
@@ -405,8 +414,8 @@ impl GameState {
                 }
             });
             if num_for > num_against {
-                // hitler wins if elected chancellor with 3+ policies
-                if matches!(self.players.get(&self.chancellor.unwrap()).unwrap().role, PlayerType::Hitler) && self.facist_policies >= 3 {
+                // hitler wins if elected chancellor with more than 3 facist policies
+                if matches!(self.players.get(&self.chancellor.unwrap()).unwrap().role, PlayerType::Hitler) && self.facist_policies > 3 {
                     self.turn_phase = TurnPhase::Ended { winner: CardColor::Facist };
                     return Ok(())
                 }
@@ -437,6 +446,13 @@ impl GameState {
     /// Does not handle discarding the selected policy cards from the deck.
     fn enact_policy(&mut self, card: CardColor) -> () {
         let mut pick_president = false;
+
+        if let (Some(president), Some(chancellor)) = (self.president.and_then(|p| self.conn.get(&p)).and_then(|p| p.name.clone()), self.chancellor.and_then(|p| self.conn.get(&p).and_then(|p| p.name.clone()))) {
+            self.add_chat(ChatLine { id: None, message: format!("President {} and chancellor {} have enacted a {} policy.", president, chancellor, card) });
+        }
+        else {
+            self.add_chat(ChatLine { id: None, message: format!("The government has been thrown into chaos! A random {} policy has been enacted.", card) })
+        }
 
         if self.cards.len() < 3 {
             self.reshuffle_deck();
