@@ -230,18 +230,19 @@ const PlayerList = ({ gameState, playerId, onSelect } : { gameState: GameState, 
     </>;
   }
 
-  const isSelectingChancellor = gameState.turn_phase.type === TurnPhase.ELECTING && gameState.president === playerId;
+  const isSelectingChancellor = gameState.turn_phase.type === TurnPhase.ELECTING;
   const isVoting = gameState.turn_phase.type === TurnPhase.VOTING;
 
   const deadPlayers = Object.entries(gameState.players).filter(([id, data]) => data.dead).map(a => a[0]);
 
-  const isUsingPower = gameState.turn_phase.type === TurnPhase.POWER && gameState.turn_phase.power !== PresidentialPower.POLICY_PEEK && gameState.president === playerId;
+  const isUsingPower = gameState.turn_phase.type === TurnPhase.POWER && gameState.turn_phase.power !== PresidentialPower.POLICY_PEEK;
 
   return <>
     <b>Players ({(numPlayers - (gameState.num_facists ?? 0) - 1)} Liberals, {gameState.num_facists ?? 0} Facists, 1 Hitler)</b>
     <div className="playerList">
       {gameState.turn_order.concat(deadPlayers).map((id, idx) => {
         const playerData = gameState.players[id];
+        const notAvailable = isSelectingChancellor && (gameState.last_chancellor === id || gameState.last_president === id || gameState.president === id);
         return <div key={id} className={`clearfix player ${playerId === id ? "self" : "other"}`}>
           <div className="order">[{playerData.dead ? "Dead" : idx + 1}]</div>
           {playerData.role != null ?
@@ -251,14 +252,14 @@ const PlayerList = ({ gameState, playerId, onSelect } : { gameState: GameState, 
           {gameState.president === id && <div className="role">President</div>}
           {gameState.chancellor === id && <div className="role">{isVoting && "Nominated "}Chancellor</div>}
           {playerData.vote != null && <div className="vote">Voted { gameState.players[id].vote ? "Yes": "No" }</div>}
-          {(isSelectingChancellor || isUsingPower) && !playerData.dead && id !== playerId &&
-            <button className="btn small" disabled={isSelectingChancellor && (gameState.last_chancellor === id || gameState.last_president === id)} onClick={(e) => {
+          {(isSelectingChancellor || isUsingPower) && !playerData.dead && (
+             gameState.president === playerId ? gameState.president === id || <button className="btn small" disabled={notAvailable} onClick={(e) => {
               e.preventDefault();
               onSelect && onSelect(id);
             }}>{isSelectingChancellor ?
                 (gameState.last_chancellor === id ? "Previous Chancellor" : gameState.last_president === id ? "Previous President" : "Nominate as Chancellor") :
                 getPowerDisplayName(gameState.turn_phase.power) }
-            </button>}
+            </button> : !notAvailable && <div className="eligible">Eligible</div>)}
         </div>;
       })}
     </div>

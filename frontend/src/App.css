@@ -153,6 +153,10 @@ div.playerList .affiliation {
   margin-right: 10px;
 }
 
+div.playerList .eligible {
+  color: #666;
+}
+
 div.playerList .affiliation .none {
   background-color: #ccc;
   border-radius: 64px;
