@@ -631,6 +631,10 @@ impl GameState {
                                 }
                                 lst.push(target);
                                 self.investigated.insert(player, lst);
+                                    
+                                if let (Some(president), Some(target)) = (self.conn.get(&self.president.unwrap()).and_then(|c| c.name.clone()), self.conn.get(&target).and_then(|c| c.name.clone())) {
+                                    self.add_chat(ChatLine { id: None, message: format!("President {} has investigated {}.", president, target) });
+                                }
 
                                 self.next_president();
                             },
@@ -655,6 +659,11 @@ impl GameState {
                             },
                             None => return Err("That player does not exist!")
                         }
+
+                        if let (Some(president), Some(target)) = (self.conn.get(&self.president.unwrap()).and_then(|c| c.name.clone()), self.conn.get(&target).and_then(|c| c.name.clone())) {
+                            self.add_chat(ChatLine { id: None, message: format!("President {} has nominated {} as president in a special election.", president, target) });
+                        }
+
                         self.last_president = self.president;
                         self.last_chancellor = self.chancellor;
                         self.chancellor = None;
@@ -686,6 +695,9 @@ impl GameState {
                                     }
                                     else {
                                         self.next_president();
+                                    }
+                                    if let (Some(president), Some(target)) = (self.conn.get(&self.president.unwrap()).and_then(|c| c.name.clone()), self.conn.get(&target).and_then(|c| c.name.clone())) {
+                                        self.add_chat(ChatLine { id: None, message: format!("President {} has killed {}.", president, target) });
                                     }
                                 }
                             },
