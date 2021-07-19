@@ -76,6 +76,7 @@ pub struct GameState {
     pub timeout: Option<SystemTime>,
 
     players: HashMap<Uuid, PlayerState>,
+    num_facists: usize,
     liberal_policies: u8,
     facist_policies: u8,
     election_tracker: u8,
@@ -136,6 +137,7 @@ impl Serialize for GameStatePlayerView<'_> {
             map.serialize_entry("turn_order", &self.state.turn_order)?;
             map.serialize_entry("cards_in_deck", &self.state.cards.len())?;
             map.serialize_entry("cards_in_discard", &self.state.discarded.len())?;
+            map.serialize_entry("num_facists", &self.state.num_facists)?;
             map.serialize_entry("players", &self.state.players.iter().map(|(k, v)| {
                 (k, PartialPlayerState {
                     name: self.state.conn.get(&k).unwrap().name.clone().unwrap_or_default(),
@@ -185,6 +187,7 @@ impl GameState {
 
             timeout: None,
             players: HashMap::new(),
+            num_facists: 0,
             liberal_policies: 0,
             facist_policies: 0,
             election_tracker: 0,
@@ -322,7 +325,7 @@ impl GameState {
         let mut turn_order = vec![];
 
         // assign roles to all players
-        let num_facist = match self.players.len() {
+        self.num_facists = match self.players.len() {
             5 => 1,
             6 => 1,
             7 => 2,
@@ -333,10 +336,10 @@ impl GameState {
             _ => self.players.len() / 2 - 1
         };
         let mut roles = Vec::new();
-        for _ in 0..self.players.len() - num_facist - 1 {
+        for _ in 0..self.players.len() - self.num_facists - 1 {
             roles.push(PlayerType::Liberal);
         }
-        for _ in 0..num_facist {
+        for _ in 0..self.num_facists {
             roles.push(PlayerType::Facist);
         }
         roles.push(PlayerType::Hitler);

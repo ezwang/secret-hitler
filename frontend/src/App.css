@@ -80,6 +80,11 @@ html, body {
   padding: 20px 40px;
 }
 
+.flavor {
+  font-size: 0.9em;
+  font-style: italic;
+}
+
 .loading:after {
   overflow: hidden;
   display: inline-block;

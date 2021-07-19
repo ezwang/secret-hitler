@@ -51,7 +51,7 @@ const ChatBox = ({ gameState, lines, onSubmit, playerId }: { playerId: Uuid, gam
   </div>
 }
 
-const IntroPrompt = ({ nickname: initialNickname, suffix, alert, onSubmit, gameId }: { nickname?: string, suffix: string, gameId?: Uuid | null, alert: string | null, onSubmit: (name: string, game: string | null) => void }): ReactElement => {
+const IntroPrompt = ({ nickname: initialNickname, suffix, alert, onSubmit, gameId, clickedLink }: { clickedLink: boolean, nickname?: string, suffix: string, gameId?: Uuid | null, alert: string | null, onSubmit: (name: string, game: string | null) => void }): ReactElement => {
   const [nickname, setNickname] = useState<string>(initialNickname ?? localStorage.getItem(`nickname${suffix}`) ?? "");
   const [gameCode, setGameCode] = useState<string>(gameId ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +85,7 @@ const IntroPrompt = ({ nickname: initialNickname, suffix, alert, onSubmit, gameI
       }
     }} />
     <div className="mb-3">
-      <button className="btn" onClick={() => onSubmit(nickname, null)}>Host Game</button>
+      <button disabled={gameCode.length >= 36 && clickedLink} className="btn" onClick={() => onSubmit(nickname, null)}>Host Game</button>
       <button className="btn" onClick={joinGame}>Join Game</button>
     </div>
     <p>Based on <a href="https://www.secrethitler.com/" target="_blank" rel="noopener noreferrer">the board game</a> - CC SA–BY–NC 4.0</p>
@@ -97,10 +97,14 @@ function App() {
   if (window.location.hostname === "localhost") {
     return <>
       <Game nickname="jack" suffix="0" />
-      <Game nickname="joe" suffix="1" />
-      <Game nickname="john" suffix="2" />
-      <Game nickname="jill" suffix="3" />
-      <Game nickname="james" suffix="4" />
+      <Game nickname="jacob" suffix="1" />
+      <Game nickname="jake" suffix="2" />
+      <Game nickname="james" suffix="3" />
+      <Game nickname="jill" suffix="4" />
+      <Game nickname="joe" suffix="5" />
+      <Game nickname="john" suffix="6" />
+      <Game nickname="joshua" suffix="7" />
+      <Game nickname="julia" suffix="8" />
     </>
   }
   return <Game />
@@ -126,21 +130,22 @@ enum PresidentialPower {
 
 type Uuid = string;
 type GameState = {
-  election_tracker?: number,
   cards?: CardColor[],
-  players: { [key: string]: { name: string, vote: boolean | null, role: "Hitler" | "Facist" | "Liberal" | null, dead: boolean } },
-  turn_phase: { type: TurnPhase, winner?: CardColor, power?: PresidentialPower },
-  host?: Uuid,
-  president?: Uuid,
-  chancellor?: Uuid,
-  last_president?: Uuid,
-  last_chancellor?: Uuid,
-  turn_order: Uuid[],
-  liberal_policies: number,
-  facist_policies: number,
-  votes?: number,
   cards_in_deck?: number,
   cards_in_discard?: number,
+  chancellor?: Uuid,
+  election_tracker?: number,
+  facist_policies: number,
+  host?: Uuid,
+  last_chancellor?: Uuid,
+  last_president?: Uuid,
+  liberal_policies: number,
+  num_facists?: number,
+  players: { [key: string]: { name: string, vote: boolean | null, role: "Hitler" | "Facist" | "Liberal" | null, dead: boolean } },
+  president?: Uuid,
+  turn_order: Uuid[],
+  turn_phase: { type: TurnPhase, winner?: CardColor, power?: PresidentialPower },
+  votes?: number,
 };
 
 const ElectionTracker = ({ num = 0 }: { num?: number }) => {
@@ -163,6 +168,7 @@ const Lobby = ({ gameState, playerId, gameId, onStart, onReset }: { gameState: G
 
   return <>
     <h1>Secret Hitler Lobby</h1>
+    <p className="flavor">The year is 1932. The place is pre-WWII Germany. In Secret Hitler, players are German politicians attempting to hold a fragile Liberal government together and stem the rising tide of Fascism. Watch out though - there are secret Fascists among you, and one player is Secret Hitler.</p>
     <p className="loading">Waiting for players</p>
     <p><b>Join Code: </b> {gameId}</p>
     <p><b>Link: </b> <CopyToClipboard url={url} /> (Click to Copy)</p>
@@ -170,6 +176,7 @@ const Lobby = ({ gameState, playerId, gameId, onStart, onReset }: { gameState: G
       <PlayerList gameState={gameState} playerId={playerId} />
     </div>
 
+    <p>New to the game? Check out the rules <a href="https://www.secrethitler.com/assets/Secret_Hitler_Rules.pdf" target="_blank" rel="noopener noreferrer">here</a>.</p>
     {!isHost && <p>Only the host may start the game.</p>}
     {numPlayers < 5 && <p>You need at least 5 players to start the game.</p>}
     {numPlayers > 10 && <p>There can be at most 10 players in a game.</p>}
@@ -209,9 +216,10 @@ function getPowerDescription(power?: PresidentialPower | null): string  {
 }
 
 const PlayerList = ({ gameState, playerId, onSelect } : { gameState: GameState, playerId: Uuid, onSelect?: (id: Uuid) => void }) => {
+  const numPlayers = Object.keys(gameState.players).length;
+
   // lobby player list
   if (gameState.turn_order.length <= 0) {
-    const numPlayers = Object.keys(gameState.players).length;
     return <>
       <b>Players <span style={{ color: numPlayers >= 5 && numPlayers <= 10 ? "green" : "red" }}>({numPlayers}/10)</span></b>
       <ul className="playerList">
@@ -228,7 +236,7 @@ const PlayerList = ({ gameState, playerId, onSelect } : { gameState: GameState, 
   const isUsingPower = gameState.turn_phase.type === TurnPhase.POWER && gameState.turn_phase.power !== PresidentialPower.POLICY_PEEK && gameState.president === playerId;
 
   return <>
-    <b>Players</b>
+    <b>Players ({(numPlayers - (gameState.num_facists ?? 0) - 1)} Liberals, {gameState.num_facists ?? 0} Facists, 1 Hitler)</b>
     <div className="playerList">
       {gameState.turn_order.concat(deadPlayers).map((id, idx) => {
         const playerData = gameState.players[id];
@@ -411,7 +419,8 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
   const [playerId, setPlayerId] = useState<Uuid | null>(localStorage.getItem(`playerId${suffix}`));
   const [playerSecret, setPlayerSecret] = useState<Uuid | null>(localStorage.getItem(`playerSecret${suffix}`));
   
-  const [gameId, setGameId] = useState<Uuid | null>(getWindowGameId() ?? initialGameId ?? localStorage.getItem("gameId"));
+  const windowGameId = getWindowGameId();
+  const [gameId, setGameId] = useState<Uuid | null>(windowGameId ?? initialGameId ?? localStorage.getItem("gameId"));
   const [connected, setConnected] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(gameId != null);
   
@@ -516,7 +525,7 @@ function Game({ nickname, gameId: initialGameId, suffix = "" }: GameProps) {
       <div className="welcome">
         <h1>Secret Hitler</h1>
         <p>A social deduction game for 5-10 people</p>
-        <IntroPrompt suffix={suffix} nickname={nickname} gameId={gameId} alert={alert} onSubmit={(nick, game) => {
+        <IntroPrompt suffix={suffix} nickname={nickname} gameId={gameId} alert={alert} clickedLink={!!windowGameId} onSubmit={(nick, game) => {
           localStorage.setItem(`nickname${suffix}`, nick);
           if (connected) {
             ws.current?.send(JSON.stringify({ "type": game != null ? "JoinGame" : "HostGame", "nickname": nick, "id": game }));
